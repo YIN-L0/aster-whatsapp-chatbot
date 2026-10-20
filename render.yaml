@@ -32,7 +32,11 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
-        sync: false
+        value: gpt-5
+      - key: OPENAI_REASONING_EFFORT
+        value: low
+      - key: ANTHROPIC_EFFORT
+        value: low
       - key: WA_ACCESS_TOKEN
         sync: false
       - key: WA_PHONE_NUMBER_ID
