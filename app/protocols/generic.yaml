@@ -1,0 +1,14 @@
+# DRAFT FOR DEMO ONLY – used when a treatment has no specific protocol yet.
+slug: generic
+version: generic@demo-draft-1
+display_name: Treatment
+aliases: []
+schedule:
+  - {day: 1, ask: [how you are feeling, any discomfort], red_flag_probes: [severe or increasing pain, fever]}
+  - {day: 7, ask: [how recovery is going], red_flag_probes: []}
+expected_symptoms: [mild redness, mild tenderness]
+review_signals: [anything unexpected]
+red_flags:
+  L4: [trouble breathing, chest pain, swelling of face or throat]
+  L3: [fever, spreading redness, severe or increasing pain]
+aftercare_notes: []

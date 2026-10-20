@@ -1,0 +1,16 @@
+# DRAFT FOR DEMO ONLY – pending clinical review and sign-off by Vanished. Not a medical protocol.
+slug: glp1
+version: glp1@demo-draft-1
+display_name: GLP-1 weight-loss treatment
+aliases: [glp-1, glp1, semaglutide, ozempic, wegovy, tirzepatide, mounjaro, zepbound, weight loss shot, weight loss injection]
+schedule:
+  - {day: 1, ask: [nausea, injection_site_reaction], red_flag_probes: [severe abdominal pain, unable to keep fluids down]}
+  - {day: 3, ask: [nausea, vomiting, constipation, appetite], red_flag_probes: [able to keep fluids down, severe abdominal pain, dizziness]}
+  - {day: 7, ask: [nausea, bowel habits, energy, appetite], red_flag_probes: [persistent vomiting, severe abdominal pain]}
+  - {day: 14, ask: [side effects overall, how you feel about progress], red_flag_probes: [severe abdominal pain]}
+expected_symptoms: [reduced appetite, mild nausea, mild constipation, mild fatigue, mild injection site redness]
+review_signals: [vomiting more than once, diarrhea lasting more than a day, dose or medication questions, wanting to stop or change treatment]
+red_flags:
+  L4: [severe abdominal pain spreading to the back, signs of severe dehydration such as fainting or confusion, allergic reaction with swelling of face or throat or trouble breathing]
+  L3: [unable to keep fluids down, persistent vomiting, severe or worsening abdominal pain, very dark urine or not urinating]
+aftercare_notes: []

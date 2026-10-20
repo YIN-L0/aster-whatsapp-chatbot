@@ -1,0 +1,16 @@
+# DRAFT FOR DEMO ONLY – pending clinical review and sign-off by Vanished. Not a medical protocol.
+slug: dermal_filler
+version: dermal_filler@demo-draft-1
+display_name: Dermal filler
+aliases: [filler, lip filler, lips, dermal filler, juvederm, restylane, belotero, radiesse, cheek filler, chin filler, tear trough]
+schedule:
+  - {day: 1, ask: [swelling, bruising, tenderness], red_flag_probes: [severe or increasing pain, pale white or dusky skin colour, any change in vision]}
+  - {day: 2, ask: [swelling, bruising, tenderness, unusual discomfort], red_flag_probes: [severe or increasing pain, unusual skin discolouration, any change in vision]}
+  - {day: 7, ask: [remaining swelling, how the results look to you], red_flag_probes: [lumps that are painful or hot]}
+  - {day: 14, ask: [how happy you are with the result], red_flag_probes: []}
+expected_symptoms: [swelling, bruising, tenderness, temporary unevenness from swelling, small firm areas that soften]
+review_signals: [concern about asymmetry or result, lumps, swelling not improving after a week]
+red_flags:
+  L4: [vision change or blurred vision, pale white blotchy or dusky purple skin near the treated area, severe pain that is increasing, trouble breathing or throat swelling]
+  L3: [fever, pus or drainage, spreading redness and warmth, hard painful lump]
+aftercare_notes: []

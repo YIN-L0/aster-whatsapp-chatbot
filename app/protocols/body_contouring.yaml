@@ -1,0 +1,23 @@
+# DRAFT FOR DEMO ONLY – aftercare notes below are copied from the client's sample conversation
+# (example.docx, Scenario 4) and are pending clinical review and sign-off by Vanished.
+slug: body_contouring
+version: body_contouring@demo-draft-1
+display_name: Body contouring (truSculpt iD / Ignite RF)
+aliases: [body contouring, trusculpt, trusculpt id, ignite, ignite rf, inmode, coolsculpting, fat reduction, sculpting]
+schedule:
+  - {day: 1, ask: [swelling, bruising, numbness, discomfort around the treated area], red_flag_probes: [severe or increasing pain, blistering or skin burns]}
+  - {day: 7, ask: [soreness, numbness, swelling, how you are feeling], red_flag_probes: [pain getting worse, skin changes]}
+  - {day: 14, ask: [any remaining symptoms], red_flag_probes: [pain getting worse]}
+expected_symptoms: [mild soreness, swelling, redness, tenderness, temporary numbness or tingling]
+review_signals: [numbness or pain lasting more than two weeks, uneven results concern]
+red_flags:
+  L4: [trouble breathing, chest pain]
+  L3: [blistering or burns on the skin, severe or increasing pain, fever, hard painful area that is getting bigger]
+provider_followup_visit: "The provider recommends a follow-up visit about one week after treatment."
+aftercare_notes:
+  - "You can generally return to normal activities, including exercise, as long as you feel comfortable."
+  - "Stay hydrated and keep your regular exercise routine as tolerated."
+  - "Continue a balanced diet to support your long-term goals."
+  - "Avoid intense workouts if they cause discomfort around the treated area."
+  - "Avoid tight clothing or excessive pressure on the treated area while it's sensitive."
+  - "Avoid aggressive massage unless your provider recommended it."

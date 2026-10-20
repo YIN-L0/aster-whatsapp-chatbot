@@ -1,0 +1,15 @@
+# DRAFT FOR DEMO ONLY – pending clinical review. Route of administration for NAD+ to be confirmed by the clinic.
+slug: nad_plus
+version: nad_plus@demo-draft-1
+display_name: NAD+ treatment
+aliases: [nad, nad+, nad plus, nad injection, nad iv]
+schedule:
+  - {day: 1, ask: [discomfort, dizziness, nausea, injection site redness or soreness], red_flag_probes: [dizziness gone, increasing redness swelling or warmth at the injection site]}
+  - {day: 2, ask: [injection site, energy, any other symptoms], red_flag_probes: [spreading redness or warmth, fever]}
+  - {day: 7, ask: [how you felt this week, interest in continuing], red_flag_probes: []}
+expected_symptoms: [mild soreness at the injection site, brief lightheadedness during or right after treatment, mild nausea, flushing]
+review_signals: [questions about continuing or changing treatment, dizziness that comes back]
+red_flags:
+  L4: [fainting, chest pain, trouble breathing, swelling of face or throat]
+  L3: [spreading redness warmth or swelling at the injection site, fever, dizziness that does not go away]
+aftercare_notes: []

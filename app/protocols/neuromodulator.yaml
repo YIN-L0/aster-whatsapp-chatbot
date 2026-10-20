@@ -1,0 +1,14 @@
+# DRAFT FOR DEMO ONLY – pending clinical review.
+slug: neuromodulator
+version: neuromodulator@demo-draft-1
+display_name: Botox / Dysport
+aliases: [botox, dysport, tox, wrinkle relaxer, neuromodulator, lip flip]
+schedule:
+  - {day: 1, ask: [redness, small bumps, headache, bruising], red_flag_probes: [drooping eyelid or brow, trouble swallowing or breathing]}
+  - {day: 14, ask: [how the result looks, any unevenness], red_flag_probes: []}
+expected_symptoms: [small bumps at injection points, mild redness, mild headache, small bruise]
+review_signals: [uneven result after two weeks, eyelid or brow heaviness]
+red_flags:
+  L4: [trouble swallowing, trouble breathing or speaking, generalized muscle weakness]
+  L3: [drooping eyelid, double vision]
+aftercare_notes: []
