@@ -36,9 +36,10 @@ class Settings(BaseSettings):
 
     # Clinic / demo
     clinic_timezone: str = "America/Indiana/Indianapolis"
+    privacy_policy_url: str = "https://aster-us.com/#/privacy"
     staff_whatsapp_numbers: str = ""  # comma separated wa_ids that receive handoff alerts
     demo_mode: bool = True
-    admin_token: str = "change-me"
+    admin_token: str = "admin-key"
     checkin_send_window: str = "09:00-19:00"
     scheduler_interval_seconds: int = 30
 

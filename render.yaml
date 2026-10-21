@@ -18,7 +18,7 @@ services:
           name: aster-db
           property: connectionString
       - key: ADMIN_TOKEN
-        generateValue: true
+        value: admin-key
       - key: WA_VERIFY_TOKEN
         generateValue: true
       - key: LLM_PROVIDER

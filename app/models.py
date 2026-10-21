@@ -59,7 +59,7 @@ class User(TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column(String(64), default="America/Indiana/Indianapolis")
     # ai | human (handoff in progress) | paused (user sent STOP for proactive messages)
     conversation_mode: Mapped[str] = mapped_column(String(16), default="ai")
-    onboarding_state: Mapped[str] = mapped_column(String(24), default="new")  # new|consent_pending|active
+    onboarding_state: Mapped[str] = mapped_column(String(24), default="new")  # new|consent_pending|declined|active
     health_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     proactive_opt_in: Mapped[bool] = mapped_column(Boolean, default=True)
     is_test_user: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -70,7 +70,7 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
         return True
     if upper in ("HUMAN", "AGENT", "TALK TO A PERSON"):
         await create_handoff(db, user, reason="user_request", urgency="routine", note="Patient asked for a person.")
-        await outbound.send_text(db, user, "Of course – I've asked the Vanished team to reach out to you. You can also "
+        await outbound.send_text(db, user, "Of course – I've asked the Essence team to reach out to you. You can also "
                                            "call the clinic at (812) 320-2284.", sender="aster_system")
         return True
     if upper == "DELETE MY DATA":

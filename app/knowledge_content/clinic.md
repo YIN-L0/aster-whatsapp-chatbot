@@ -1,11 +1,11 @@
 ---
-title: About Vanished Aesthetics & Wellness
+title: About Essence Aesthetics & Wellness
 url: https://vanishedaesthetics.com/our-clinic/
 scope: service_info
 fetched: 2026-10-19
 ---
 ## Location and contact
-Vanished Aesthetics & Wellness is a med spa at 1205 N Walnut St., Bloomington, IN 47404. Phone: (812) 320-2284. Email: CSC@vanishedaesthetics.com. Clinic hours are not listed on the website; patients should call or check the booking page.
+Essence Aesthetics & Wellness is a med spa at 1205 N Walnut St., Bloomington, IN 47404. Phone: (812) 320-2284. Email: CSC@vanishedaesthetics.com. Clinic hours are not listed on the website; patients should call or check the booking page.
 
 ## Booking and payment
 Appointments and consultations are booked online through Vagaro: https://www.vagaro.com/vanishedaestheticsandwellness . The clinic accepts CareCredit. The clinic describes a "zero-pressure" model where patients are educated to choose their own care plan. Consultations are described as pressure-free with any provider.

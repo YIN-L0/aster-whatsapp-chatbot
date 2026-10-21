@@ -62,11 +62,13 @@ async def render(db: AsyncSession, key: str) -> str:
             f"<td>{r.latency_ms} ms</td><td>{escape(', '.join(r.postcheck_violations or []))}</td></tr>" for r in runs
         )
         msgs = list(await db.scalars(select(Message).where(Message.user_id == u.id)
-                                     .order_by(Message.created_at.desc()).limit(14)))
-        mhtml = "".join(f"<div class='msg {m.direction}'>{escape(m.body)}</div>" for m in reversed(msgs))
+                                     .order_by(Message.created_at.desc()).limit(300)))
+        mhtml = "".join(f"<div class='msg {m.direction}'>{escape(m.body)}<span class=muted> · {_t(m.created_at, tz)}"
+                        f"</span></div>" for m in msgs)  # newest first; column-reverse shows it at the bottom
         cards.append(
             f"<section class=card><h3>{escape(u.first_name or u.display_name or 'Unknown')} "
-            f"<span class=muted>+{u.wa_id[:-4]}•••• · mode: {u.conversation_mode} · consent: {u.health_consent}</span></h3>"
+            f"<span class=muted>+{u.wa_id[:-4]}•••• · mode: {u.conversation_mode} · onboarding: {u.onboarding_state} · consent: {u.health_consent} "
+            f"· check-ins: {'on' if u.proactive_opt_in else 'off'}</span></h3>"
             f"<div class=grid><div><h5>Treatment journeys</h5>{''.join(jhtml) or '<p class=muted>None</p>'}"
             f"<h5>Check-ins & reminders</h5><ul>{chtml or '<li class=muted>None</li>'}</ul>"
             f"<h5>Appointments</h5><ul>{ahtml or '<li class=muted>None</li>'}</ul>"
@@ -93,7 +95,7 @@ td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}ul{mar
 .pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;background:var(--line)}
 .r2,.u-routine{background:#fff1c2;color:#6b5200}.r3,.u-urgent{background:#ffd8b0;color:#7a3a00}.r4,.u-emergency{background:#ffc9c9;color:#8a0f0f}
 .r1{background:#dff3e4;color:#1d5e33}.trend.worsening{color:#c0392b;font-weight:600}.trend.improving,.trend.resolved{color:#2e8b57}
-.chat{display:flex;flex-direction:column;gap:6px;max-height:640px;overflow:auto}.msg{padding:8px 10px;border-radius:10px;white-space:pre-wrap;max-width:90%;border:1px solid var(--line)}
+.chat{display:flex;flex-direction:column-reverse;gap:6px;max-height:640px;overflow:auto}.msg{padding:8px 10px;border-radius:10px;white-space:pre-wrap;max-width:90%;border:1px solid var(--line)}
 .msg.in{background:var(--in);align-self:flex-start}.msg.out{background:var(--out);align-self:flex-end}pre{white-space:pre-wrap;font-size:12px}
-</style></head><body><header><b>Aster</b> demo console · Vanished Aesthetics & Wellness · <span class=muted>simulated data only · refreshes every 5s</span></header>
+</style></head><body><header><b>Aster</b> demo console · Essence Aesthetics & Wellness · <span class=muted>simulated data only · refreshes every 5s</span></header>
 <main>{{CARDS}}</main></body></html>"""

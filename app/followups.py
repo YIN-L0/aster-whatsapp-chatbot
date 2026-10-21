@@ -74,7 +74,7 @@ async def send_checkin(db: AsyncSession, user: User, checkin: Checkin) -> bool:
             return False
         when = booking.fmt_slot(_aware(appt.starts_at).astimezone(ZoneInfo(user.timezone)))
         text = (f"Hi {user.first_name or 'there'}! 💛 A quick reminder: your {appt.purpose.replace('_', ' ')} "
-                f"at Vanished is on {when}. Reply here if you need to change it.")
+                f"at Essence is on {when}. Reply here if you need to change it.")
         ok = await outbound.send_text(db, user, text, sender="aster_system", checkin_id=checkin.id)
     elif outbound.in_service_window(user):
         ok = await run_checkin_opener(db, user, checkin)

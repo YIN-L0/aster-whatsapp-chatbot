@@ -17,7 +17,7 @@ slightly each time.
 ---
 
 ## 0. Onboarding + clinic questions (2 min)
-1. `#reset`, then send: **Hi!** → introduction + consent buttons → tap **Yes, that's OK**
+1. `#reset`, then send: **Hi!** → welcome + privacy link + consent buttons → tap **I Agree**
 2. **How much is Botox?** → starting prices for Botox/Dysport, taken from the website
 3. **Do you do CoolSculpting?** → it doesn't make anything up: CoolSculpting isn't listed; it mentions truSculpt iD / Ignite RF
 4. **Where are you located and how do I book?** → address and Vagaro link

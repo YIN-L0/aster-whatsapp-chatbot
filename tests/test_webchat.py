@@ -34,7 +34,7 @@ async def test_webchat_onboarding_and_reply():
         consent = next(m for m in data["messages"] if m["type"] == "buttons")
         assert [b["id"] for b in consent["buttons"]] == ["consent:yes", "consent:no"]
 
-        await c.post("/chat/api/send", json={"user_id": uid, "name": "Emily", "text": "Yes, that's OK",
+        await c.post("/chat/api/send", json={"user_id": uid, "name": "Emily", "text": "I Agree",
                                              "button_id": "consent:yes"})
         set_provider(FakeProvider([{"messages": ["Botox starts at $13/unit."], "risk_level": 0,
                                     "risk_reason": "", "intents": ["service_question"]}]))

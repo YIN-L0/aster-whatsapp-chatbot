@@ -98,17 +98,17 @@ def emergency_reply(first_name: str | None, clinic_phone: str, hits: list[str]) 
     return (
         f"{name}hat you're describing needs urgent medical attention. "
         "Please call 911 or go to the nearest emergency room now — don't wait for an appointment.\n\n"
-        f"I've alerted the Vanished team. If you can, also call the clinic at {clinic_phone}."
+        f"I've alerted the Essence team. If you can, also call the clinic at {clinic_phone}."
     )
 
 
 HUMAN_MODE_ACK = (
-    "Thanks — the Vanished team has your message and will be in touch. "
+    "Thanks — the Essence team has your message and will be in touch. "
     "If anything feels urgent or gets worse, please call 911 or go to the nearest emergency room."
 )
 
 FALLBACK_REPLY = (
-    "Sorry, I'm having trouble answering that right now. I've asked the Vanished team to follow up with you. "
+    "Sorry, I'm having trouble answering that right now. I've asked the Essence team to follow up with you. "
     "If you feel unwell or something is getting worse, please call the clinic at (812) 320-2284, or 911 in an emergency."
 )
 

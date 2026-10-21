@@ -63,8 +63,8 @@ SCENARIOS = {
         ("Perfect!", {"tool": "book_appointment", "appointment": True}),
     ]),
     "faq": ("#reset", [
-        ("Yes, that's OK", {"button": "consent:yes"}),
-        ("How much is Botox at Vanished?", {"tool": "search_knowledge", "contains": r"\$13"}),
+        ("I Agree", {"button": "consent:yes"}),
+        ("How much is Botox at Essence?", {"tool": "search_knowledge", "contains": r"\$13"}),
         ("Do you offer CoolSculpting?", {"tool": "search_knowledge", "contains": r"truSculpt|Ignite"}),
         ("Can you write me a poem about cats?", {"risk_max": 0}),
     ]),
@@ -86,7 +86,7 @@ async def run(name: str, setup: str, turns: list) -> list[str]:
                                             profile_name="Demo", button_id=button))
 
     await send("hi")
-    await send("Yes, that's OK", "consent:yes")
+    await send("I Agree", "consent:yes")
     channel.sent.clear()
     await send(setup)
     if name == "faq":

@@ -25,7 +25,7 @@ async def onboard(channel):
     set_provider(FakeProvider([]))
     await handle_inbound(inbound("hi"))
     assert channel.sent[-1]["type"] == "buttons"
-    await handle_inbound(inbound("Yes, that's OK", button_id="consent:yes"))
+    await handle_inbound(inbound("I Agree", button_id="consent:yes"))
 
 
 async def test_onboarding_then_journey_confirmed_by_button(channel):
@@ -37,7 +37,7 @@ async def test_onboarding_then_journey_confirmed_by_button(channel):
         reply("Thanks Emily! I'll save that once you confirm 💛", intents=["journey_update"]),
     ])
     set_provider(fake)
-    await handle_inbound(inbound("I got lip filler at Vanished yesterday"))
+    await handle_inbound(inbound("I got lip filler at Essence yesterday"))
 
     buttons = channel.sent[-1]
     assert buttons["type"] == "buttons" and "Lip filler" in buttons["text"]
@@ -202,3 +202,16 @@ async def test_fallback_after_postcheck_creates_handoff(channel):
     async with session_scope() as db:
         h = await db.scalar(select(Handoff))
         assert h.reason == "bot_failure" and "unbacked_booking_claim" in h.summary
+
+
+async def test_not_now_blocks_ai_until_agree(channel):
+    set_provider(FakeProvider([]))
+    await handle_inbound(inbound("hi"))
+    assert "https://aster-us.com/#/privacy" in channel.sent[-2]["text"]
+    await handle_inbound(inbound("Not Now", button_id="consent:no"))
+    await handle_inbound(inbound("How much is Botox?"))
+    assert channel.sent[-1]["type"] == "buttons"  # consent asked again, AI not called
+    set_provider(FakeProvider([reply("Botox starts at $13/unit.", intents=["service_question"])]))
+    await handle_inbound(inbound("I Agree", button_id="consent:yes"))
+    assert "$13" in channel.sent[-1]["text"]
+    assert (await _user()).health_consent

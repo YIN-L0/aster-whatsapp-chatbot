@@ -21,13 +21,30 @@ from app.models import AgentRun, Checkin, JournalEntry, Message, PendingAction, 
 log = logging.getLogger(__name__)
 _locks: dict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 
-ONBOARDING_TEXT = (
-    "Hi{name}! I'm Aster 💛, the recovery companion for Vanished Aesthetics & Wellness.\n\n"
-    "I can answer questions about the clinic and, if you'd like, check in on you after treatments and keep a "
-    "private recovery journal.\n\n"
-    "I'm an AI assistant, not a medical professional. In an emergency, call 911.\n\n"
-    "_Demo version – please don't share real health information._"
+WELCOME_TEXT = (
+    "🌿 *Welcome to Aster!*\n\n"
+    "Hi {name}! I'm Aster, your personal AI wellness companion.\n\n"
+    "I'm here to support your wellness journey and help you stay connected with your care team.\n\n"
+    "Before we get started, please review our Privacy Policy:\n{privacy_url}"
 )
+CONSENT_TEXT = (
+    "🔒 *Your Privacy Matters*\n\n"
+    "By tapping *I Agree*, you acknowledge our Privacy Policy and that:\n"
+    "• Aster is an AI-powered assistant, not a healthcare professional.\n"
+    "• Your messages may be processed by Aster and its authorized service providers to provide this service.\n"
+    "• WhatsApp may not be appropriate for sharing sensitive medical information. Please avoid sharing it here. "
+    "For medical concerns, contact your healthcare provider directly. In an emergency, call 911.\n\n"
+    "Privacy Policy: {privacy_url}\n\n"
+    "Reply STOP anytime to stop receiving messages."
+)
+CONSENT_BUTTONS = [Button("consent:yes", "I Agree"), Button("consent:no", "Not Now")]
+DEMO_NOTE = "_Demo version – please don't share real health information._"
+
+
+async def _send_consent(db: AsyncSession, user: User) -> None:
+    await outbound.send_buttons(
+        db, user, CONSENT_TEXT.format(privacy_url=get_settings().privacy_policy_url), CONSENT_BUTTONS
+    )
 
 
 # ---------- ingest (called from the webhook; must be fast) ----------
@@ -111,7 +128,7 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         await outbound.send_text(
             db, user,
             "Thanks for sending that! I can't view photos or voice notes yet. Could you describe in words how "
-            "things look or feel? If you're worried, the Vanished team can review photos directly – just ask.",
+            "things look or feel? If you're worried, the Essence team can review photos directly – just ask.",
             sender="aster_system",
         )
         return
@@ -135,17 +152,19 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         user.onboarding_state = "consent_pending"
         for m in pending:
             m.status = "deferred"  # answered after consent
-        name = f" {user.first_name}" if user.first_name else ""
-        await outbound.send_text(db, user, ONBOARDING_TEXT.format(name=name), sender="aster_system")
-        await outbound.send_buttons(
-            db, user,
-            "Is it OK if I keep a private record of your treatments and how you're recovering, and send you check-in "
-            "messages after treatments? You can say STOP anytime.",
-            [Button("consent:yes", "Yes, that's OK"), Button("consent:no", "Just questions")],
-        )
+        s = get_settings()
+        welcome = WELCOME_TEXT.format(name=user.first_name or "there", privacy_url=s.privacy_policy_url)
+        if s.demo_mode:
+            welcome += f"\n\n{DEMO_NOTE}"
+        await outbound.send_text(db, user, welcome, sender="aster_system")
+        await _send_consent(db, user)
         return
-    if user.onboarding_state == "consent_pending":
-        user.onboarding_state = "active"  # typed instead of tapping – continue without health consent
+    if user.onboarding_state in ("consent_pending", "declined"):
+        # No AI chat until the patient taps I Agree – typed messages wait and the consent prompt is shown again.
+        for m in pending:
+            m.status = "deferred"
+        await _send_consent(db, user)
+        return
 
     # E. Human mode: a person is handling the health concern. New messages are added to the handoff; Aster only
     # answers clinic questions (hours, address, prices) and otherwise says the team has the message.
@@ -248,27 +267,29 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
 
 async def _handle_button(db: AsyncSession, user: User, button_id: str) -> bool:
     if button_id.startswith("consent:"):
-        user.onboarding_state = "active"
-        if button_id == "consent:yes":
-            user.health_consent, user.proactive_opt_in = True, True
-            await outbound.send_text(db, user, "Thank you 💛 You're all set.", sender="aster_system")
-        else:
+        if button_id == "consent:no":
+            user.onboarding_state = "declined"
             user.health_consent, user.proactive_opt_in = False, False
-            await outbound.send_text(db, user, "No problem! I'm happy to answer any questions about Vanished.",
-                                     sender="aster_system")
+            await outbound.send_text(
+                db, user,
+                "No problem. Whenever you're ready, just send me a message and tap *I Agree* to get started 🌿\n\n"
+                "For medical concerns, contact your healthcare provider directly. In an emergency, call 911.",
+                sender="aster_system",
+            )
+            return True
+        user.onboarding_state = "active"
+        user.health_consent, user.proactive_opt_in = True, True
         deferred = list(await db.scalars(
             select(Message).where(Message.user_id == user.id, Message.status == "deferred").order_by(Message.created_at)
         ))
         text = "\n".join(m.body for m in deferred if m.body).strip()
         if deferred and len(text) > 12:  # more than a greeting – answer it now
+            await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm excited to be part of your wellness "
+                                     "journey!", sender="aster_system")
             await _run_main_agent(db, user, deferred, text, safety.prefilter(text))
-        elif user.health_consent:
-            await outbound.send_text(
-                db, user,
-                "How can I help today? You can ask me about Vanished's treatments, or tell me about a recent "
-                "treatment and I'll check in on your recovery.",
-                sender="aster_system",
-            )
+        else:
+            await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm excited to be part of your wellness "
+                                     "journey!\n\nHow can I help you today?", sender="aster_system")
         for m in deferred:
             m.status = "processed"
         return True
