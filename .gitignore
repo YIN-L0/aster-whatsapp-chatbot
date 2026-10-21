@@ -11,3 +11,6 @@ references/
 
 # Simulated patient transcripts (scripts/simulate_patients.py)
 sim_runs/
+
+# Local test report exports
+test_reports/
