@@ -7,6 +7,7 @@ Otherwise MockBookingAdapter generates deterministic demo slots so a demo is rep
 import asyncio
 import hashlib
 import logging
+import re
 import time as clock
 import uuid
 from datetime import date, datetime, time, timedelta
@@ -80,6 +81,28 @@ def _parse_preferred_day(preferred_day: str | None, today: date, start: date) ->
     return target_wd, start
 
 
+_STOPWORDS = {"the", "and", "for", "with", "treatment", "appointment", "session", "therapy"}
+
+
+def _words(text: str) -> set[str]:
+    return {w.rstrip("s") for w in re.split(r"[^a-z0-9+]+", text.lower()) if len(w) > 2 and w not in _STOPWORDS}
+
+
+def _best_match(text: str, items: list[dict]) -> dict | None:
+    """Exact code or name first, then the one item sharing the most words ('Dr. Mercer' → Diane Mercer).
+    A tie ('laser' fits three lasers) returns None, so the model asks instead of guessing."""
+    t = text.strip().lower()
+    for it in items:
+        if t in (it["code"], it["code"].replace("-", " "), it["name"].lower()):
+            return it
+    words = _words(t)
+    score = lambda it: len(words & _words(f"{it['name']} {it['code']}"))  # noqa: E731
+    ranked = sorted(items, key=score, reverse=True)
+    if not ranked or not score(ranked[0]) or (len(ranked) > 1 and score(ranked[1]) == score(ranked[0])):
+        return None
+    return ranked[0]
+
+
 class BookingError(Exception):
     def __init__(self, code: str, message: str = "") -> None:
         super().__init__(message or code)
@@ -124,27 +147,17 @@ class ApiBookingAdapter:
         cached = _catalog_cache.get(self.base)
         if cached and clock.monotonic() - cached[0] < self.CATALOG_TTL:
             return cached[1]
-        cat = {"doctors": await self._request("GET", "/doctors"), "services": await self._request("GET", "/services")}
+        # Only doctors with a stable code can be booked by the bot; others belong to stores this bot doesn't serve
+        doctors = [d for d in await self._request("GET", "/doctors") if d.get("code")]
+        cat = {"doctors": doctors, "services": await self._request("GET", "/services")}
         _catalog_cache[self.base] = (clock.monotonic(), cat)
         return cat
 
     async def find_service(self, text: str) -> dict | None:
-        t = text.strip().lower()
-        services = (await self.catalog())["services"]
-        for match in (lambda s: t in (s["code"], s["code"].replace("-", " "), s["name"].lower()),
-                      lambda s: t in s["name"].lower() or s["name"].lower() in t):
-            hits = [s for s in services if match(s)]
-            if hits:
-                return hits[0]
-        return None
+        return _best_match(text, (await self.catalog())["services"])
 
     async def find_doctor(self, text: str) -> dict | None:
-        t = text.strip().lower()
-        for d in (await self.catalog())["doctors"]:
-            name = d["name"].lower()
-            if t in (d["code"], name) or t == name.split()[0] or t in name:
-                return d
-        return None
+        return _best_match(text, (await self.catalog())["doctors"])
 
     async def availability(self, service: str, doctor: str | None, preferred_day: str | None, limit: int = 3) -> list[dict]:
         """Up to `limit` real slots, earliest first: [{'start': iso, 'doctor': code, 'doctor_name': ...}]."""

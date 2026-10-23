@@ -7,6 +7,7 @@ os.environ["WA_ACCESS_TOKEN"] = ""
 os.environ["WA_APP_SECRET"] = ""
 os.environ["STAFF_WHATSAPP_NUMBERS"] = "15559990000"
 os.environ["DEMO_MODE"] = "true"
+os.environ["BOOKING_API_URL"] = ""  # tests must never reach the real booking backend
 
 import itertools  # noqa: E402
 

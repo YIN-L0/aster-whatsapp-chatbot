@@ -161,3 +161,26 @@ async def test_pending_booking_is_not_called_confirmed(channel, backend):
     async with session_scope() as db:
         assert (await db.scalar(select(Appointment))).status == "pending"
         assert await db.scalar(select(Checkin).where(Checkin.kind == "appointment_reminder")) is None
+
+
+async def test_patient_words_match_backend_codes(monkeypatch):
+    names = {'inmode-ignite': 'InMode Ignite RF', 'trusculpt': 'truSculpt iD', 'consultation': 'Consultation (new patient / treatment planning)', 'wellness-consult': 'Wellness / functional medicine consultation', 'keravive': 'HydraFacial Keravive scalp', 'prp-hair': 'PRP hair injections / Nutrafol', 'botox': 'Botox', 'dermal-fillers': 'Dermal fillers (Restylane, Belotero, Radiesse, Juvederm)', 'dysport': 'Dysport', 'fat-dissolving': 'Fat-dissolving injection (under the chin)', 'filler-reversal': 'Filler reversal (Hylenex)', 'prp-facial': 'PRP facial / PRP Selphyller', 'sculptra': 'Sculptra / hyperdiluted Radiesse', 'iv-drip': "IV drips (Myers', Immunity, Quench and others)", 'vitamin-injection': 'Vitamin injections (B12, Vitamin D and others)', 'peptides': 'Peptides (NAD+, BPC-157, Sermorelin and others)', 'chemical-peel': 'Chemical peels (Prodigy, PRXt-33, BioRepeel)', 'pico-laser': 'Discovery Pico laser', 'hydrafacial': 'HydraFacial (Signature, Platinum)', 'ipl-ndyag': 'IPL / ND YAG laser', 'facial': 'Medical-grade facial / Express Harmony Facial / dermaplaning', 'microneedling': 'Microneedling / RF microneedling (+ PRP $250)', 'co2-laser': 'Tetra CO2 laser', 'lab-testing': 'Testing (hormone panels, GI mapping, food sensitivity, mold, heavy metals)', 'weight-loss': 'Semaglutide / tirzepatide program', 'weight-loss-consult': 'Weight-loss consultation', 'weight-loss-followup': 'Weight-loss follow-up', 'hormone-health': 'BHRT / intimate wellness / TRT'}  # live catalog, 2026-10-23
+    services = [{"code": c, "name": n, "botBookable": True} for c, n in names.items()]
+    doctors = [{"code": f"{f}-{l}".lower(), "name": f"{f} {l}, RN", "services": []} for f, l in
+               [("Diane", "Mercer"), ("Megan", "Clarke"), ("Melissa", "Rowe"), ("Claire", "Benson"),
+                ("Laura", "Whitfield"), ("Daniel", "Hayes")]]
+    api = booking.ApiBookingAdapter("https://catalog.test", "k", "America/New_York")
+    booking._catalog_cache[api.base] = (float("inf"), {"doctors": doctors, "services": services})
+    monkeypatch.setattr(booking.ApiBookingAdapter, "CATALOG_TTL", float("inf"))
+    expected = {"Botox": "botox", "dermal fillers": "dermal-fillers", "HydraFacial": "hydrafacial",
+                "chemical peel": "chemical-peel", "CO2 laser": "co2-laser", "IV drip": "iv-drip",
+                "weight loss consultation": "weight-loss-consult", "Keravive scalp treatment": "keravive",
+                "PRP hair": "prp-hair", "truSculpt": "trusculpt"}
+    for text, code in expected.items():
+        assert (await api.find_service(text))["code"] == code, text
+    assert await api.find_service("pizza") is None
+    assert await api.find_service("laser") is None  # three lasers: ask, don't guess
+    for text, code in {"Claire": "claire-benson", "claire benson": "claire-benson", "Dr. Mercer": "diane-mercer",
+                       "Daniel": "daniel-hayes", "megan-clarke": "megan-clarke"}.items():
+        assert (await api.find_doctor(text))["code"] == code, text
+    booking._catalog_cache.clear()

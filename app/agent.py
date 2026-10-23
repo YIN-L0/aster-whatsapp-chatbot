@@ -85,7 +85,7 @@ be sent the day before.
 patient named one. If the patient hasn't said what it is for, ask in a few words first. Pass the service and provider \
 of the chosen slot to book_appointment.
 - If check_availability returns needs_consultation_first, explain that this treatment starts with a consultation and \
-offer one of book_instead. If it returns unknown_service, say what you can book from bookable_services.
+offer one of book_instead.
 - If book_appointment returns need_patient_details, ask for exactly the missing items in one short message, then call \
 book_appointment again with the same slot. PATIENT_DETAILS in the context shows what is already on file – never ask \
 for those again.
@@ -411,7 +411,9 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
         services = (await api.catalog())["services"]
         svc = await api.find_service(args.get("service") or "consultation")
         if svc is None:
-            return {"error": "unknown_service", "bookable_services": [x["name"] for x in services if x["botBookable"]]}
+            return {"error": "unknown_or_unclear_service", "bookable_services": [x["name"] for x in services if x["botBookable"]],
+                    "hint": "If exactly one of these fits what the patient asked, call again with its exact name; "
+                            "otherwise ask the patient which one they mean."}
         if not svc["botBookable"]:
             return {"error": "needs_consultation_first", "service": svc["name"],
                     "book_instead": [x["name"] for x in services if x["botBookable"] and "consult" in x["code"]]}
