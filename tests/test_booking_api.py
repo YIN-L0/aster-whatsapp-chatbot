@@ -104,11 +104,10 @@ async def test_check_availability_and_book_after_asking_details(channel, backend
     ]))
     await handle_inbound(inbound("Yes"))
     out = (await _last_tool_outputs())[0]
-    assert out["error"] == "need_patient_details" and out["missing"] == ["full name", "date of birth"]
+    assert out["error"] == "need_patient_details" and out["missing"] == ["full name"]
 
     set_provider(FakeProvider([
-        [{"name": "book_appointment", "input": {**book, "patient_full_name": "Emily Stone",
-                                                "patient_birth_date": "1990-04-02"}}],
+        [{"name": "book_appointment", "input": {**book, "patient_full_name": "Emily Stone"}}],
         reply("You're all set! 💛 Botox with Claire tomorrow at 3:30 PM.", intents=["booking"]),
     ]))
     await handle_inbound(inbound("Emily Stone, April 2 1990"))
@@ -116,12 +115,13 @@ async def test_check_availability_and_book_after_asking_details(channel, backend
 
     post = [r for r in backend.requests if r.method == "POST"][-1]
     body = json.loads(post.content)
-    assert body["patient"] == {"name": "Emily Stone", "phone": "+15551230000", "birthDate": "1990-04-02", "email": None}
+    # Demo: no birth date asked; the configured placeholder is sent
+    assert body["patient"] == {"name": "Emily Stone", "phone": "+15551230000", "birthDate": "1990-01-01", "email": None}
     assert body["doctor"] == "claire-benson" and body["service"] == "botox" and post.headers["idempotency-key"]
     async with session_scope() as db:
         appt = await db.scalar(select(Appointment))
         assert (appt.external_ref, appt.status, appt.source) == ("apt_test1", "confirmed", "aster_api")
-        assert (await db.scalar(select(User))).birth_date == "1990-04-02"
+        assert (await db.scalar(select(User))).full_name == "Emily Stone"
         assert await db.scalar(select(Checkin).where(Checkin.kind == "appointment_reminder"))
 
 

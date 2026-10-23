@@ -88,9 +88,9 @@ times are added for you. Don't do this during a symptom check-in, when risk >= 2
 above instead), or if the patient said they aren't ready to book.
 - A tapped time button arrives as "Yes, please book … [slot=… provider=… service=…]": that is acceptance. Call \
 book_appointment with exactly those slot, provider and service values.
-- When the patient accepts a time and PATIENT_DETAILS shows full_name=no or date_of_birth=no, ask for both in one \
-short message ("Great! To book it, what's your full name and date of birth?"), then call book_appointment with the \
-accepted slot as soon as they answer, converting the date to YYYY-MM-DD. Don't ask for anything else.
+- When the patient accepts a time and PATIENT_DETAILS shows needed=… , ask for exactly those in one short message \
+("Great! To book it, what's your full name?"), then call book_appointment with the accepted slot as soon as they \
+answer (a date as YYYY-MM-DD). Don't ask for anything else.
 - Pass what the visit is for as service (e.g. "Botox", "HydraFacial", "consultation"), and provider only if the \
 patient named one. If the patient hasn't said what it is for, ask in a few words first. Pass the service and provider \
 of the chosen slot to book_appointment.
@@ -466,7 +466,8 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
             user.birth_date = args["patient_birth_date"].strip()
         if args.get("patient_phone"):
             user.phone = phone = "+" + re.sub(r"\D", "", args["patient_phone"])[:15]
-        missing = [k for k, v in (("full name", user.full_name), ("date of birth", user.birth_date),
+        birth_date = user.birth_date or get_settings().booking_default_birth_date
+        missing = [k for k, v in (("full name", user.full_name), ("date of birth", birth_date),
                                   ("mobile number", phone)) if not v]
         if missing:
             return {"error": "need_patient_details", "missing": missing,
@@ -474,7 +475,7 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
         key_src = f"{st.source_message_ids[-1] if st.source_message_ids else uuid.uuid4()}|{args['slot']}|{doctor['code']}"
         res = await api.book(
             doctor=doctor["code"], service=svc["code"], start=args["slot"],
-            patient={"name": user.full_name, "phone": phone, "birthDate": user.birth_date, "email": None},
+            patient={"name": user.full_name, "phone": phone, "birthDate": birth_date, "email": None},
             note=(args.get("notes_for_provider") or "")[:500] + " (via WhatsApp)",
             idempotency_key=hashlib.sha256(key_src.encode()).hexdigest()[:40],
         )

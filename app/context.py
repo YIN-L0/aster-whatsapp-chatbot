@@ -7,6 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import booking, journeys
+from app.channels import is_web_user
+from app.config import get_settings
 from app.handoff import open_handoff
 from app.models import Checkin, Journey, Message, User
 
@@ -54,6 +56,15 @@ async def next_checkin(db: AsyncSession, user: User) -> Checkin | None:
     )
 
 
+def _missing_booking_details(user: User) -> list[str]:
+    missing = [] if user.full_name else ["full name"]
+    if not user.birth_date and not get_settings().booking_default_birth_date:
+        missing.append("date of birth")
+    if is_web_user(user.wa_id) and not user.phone:
+        missing.append("mobile number")
+    return missing
+
+
 def _fmt_list(items: list) -> str:
     return "; ".join(str(i) for i in items) if items else "(none)"
 
@@ -67,8 +78,7 @@ async def build_context_block(
         "<context>",
         f"now_local: {now.strftime('%A %Y-%m-%d %H:%M')} ({user.timezone})",
         f"patient: first_name={user.first_name or 'unknown'}; health_consent={str(user.health_consent).lower()}",
-        f"PATIENT_DETAILS on file for booking: full_name={'yes' if user.full_name else 'no'}; "
-        f"date_of_birth={'yes' if user.birth_date else 'no'}",
+        "PATIENT_DETAILS still needed before booking: needed=" + (", ".join(_missing_booking_details(user)) or "none"),
     ]
     if journey:
         proto = journeys.get_protocol(journey.treatment_slug)

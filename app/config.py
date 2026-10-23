@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Aster booking backend (Bot API v1). Empty = demo mock slots.
     booking_api_url: str = ""
     booking_api_key: str = ""
+    # DEMO: the booking backend requires a birth date; the demo assumes adults and sends this instead of asking.
+    # Empty = ask the patient. Must be emptied before real patients book.
+    booking_default_birth_date: str = "1990-01-01"
     staff_whatsapp_numbers: str = ""  # comma separated wa_ids that receive handoff alerts
     demo_mode: bool = True
     admin_token: str = "admin-key"
