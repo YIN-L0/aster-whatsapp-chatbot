@@ -56,6 +56,10 @@ class User(TimestampMixin, Base):
     wa_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     display_name: Mapped[str | None] = mapped_column(String(120))
     first_name: Mapped[str | None] = mapped_column(String(80))
+    # Asked once before the first real booking
+    full_name: Mapped[str | None] = mapped_column(String(120))
+    birth_date: Mapped[str | None] = mapped_column(String(10))  # YYYY-MM-DD
+    phone: Mapped[str | None] = mapped_column(String(20))  # E.164, only needed for web-chat users
     timezone: Mapped[str] = mapped_column(String(64), default="America/Indiana/Indianapolis")
     # ai | human (handoff in progress) | paused (user sent STOP for proactive messages)
     conversation_mode: Mapped[str] = mapped_column(String(16), default="ai")
@@ -164,7 +168,7 @@ class Checkin(TimestampMixin, Base):
 
 
 class Appointment(TimestampMixin, Base):
-    """DEMO ONLY: mock bookings. Real bookings will go through a BookingAdapter (e.g. Vagaro)."""
+    """A booking. source=demo_mock for mock slots, aster_api for bookings made in the booking backend."""
 
     __tablename__ = "appointments"
 
@@ -175,8 +179,10 @@ class Appointment(TimestampMixin, Base):
     purpose: Mapped[str] = mapped_column(String(32))  # consultation|follow_up|new_treatment
     provider_name: Mapped[str] = mapped_column(String(120))
     notes: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(16), default="confirmed")
+    status: Mapped[str] = mapped_column(String(16), default="confirmed")  # confirmed|pending
     source: Mapped[str] = mapped_column(String(16), default="demo_mock")
+    service: Mapped[str | None] = mapped_column(String(64))
+    external_ref: Mapped[str | None] = mapped_column(String(64))  # the booking backend's appointment ref
 
 
 class Handoff(TimestampMixin, Base):

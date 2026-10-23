@@ -1,18 +1,25 @@
-"""DEMO ONLY: mock availability and booking.
+"""Availability and booking.
 
-Slots are generated deterministically so a demo is repeatable. The real build replaces
-MockBookingAdapter with a Vagaro adapter behind the same two methods.
+ApiBookingAdapter books into the Aster booking backend (Bot API v1) when BOOKING_API_URL is set.
+Otherwise MockBookingAdapter generates deterministic demo slots so a demo is repeatable.
 """
 
+import asyncio
 import hashlib
+import logging
+import time as clock
 import uuid
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import Appointment, User
+
+log = logging.getLogger(__name__)
 
 SLOT_TIMES = [time(10, 0), time(11, 0), time(14, 0), time(14, 30), time(15, 30), time(16, 30)]
 WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -29,13 +36,7 @@ class MockBookingAdapter:
     def availability(self, preferred_day: str | None, earliest: date | None = None, limit: int = 3) -> list[datetime]:
         now = datetime.now(self.tz)
         start = max(earliest or now.date(), now.date() + timedelta(days=1))
-        target_wd = None
-        if preferred_day:
-            p = preferred_day.lower()
-            target_wd = next((i for i, n in enumerate(WEEKDAY_NAMES) if n in p), None)
-            if "next" in p and target_wd is not None:
-                # "next Thursday" = the Thursday of next week
-                start = max(start, now.date() + timedelta(days=7 - now.weekday()))
+        target_wd, start = _parse_preferred_day(preferred_day, now.date(), start)
         if target_wd is not None and target_wd >= 5:
             target_wd = None  # clinic is closed on weekends – fall back to the nearest weekdays
         slots: list[datetime] = []
@@ -66,6 +67,121 @@ class MockBookingAdapter:
         db.add(appt)
         await db.flush()
         return appt
+
+
+def _parse_preferred_day(preferred_day: str | None, today: date, start: date) -> tuple[int | None, date]:
+    """'Thursday' → (3, start); 'next Thursday' → the Thursday of next week."""
+    if not preferred_day:
+        return None, start
+    p = preferred_day.lower()
+    target_wd = next((i for i, n in enumerate(WEEKDAY_NAMES) if n in p), None)
+    if "next" in p and target_wd is not None:
+        start = max(start, today + timedelta(days=7 - today.weekday()))
+    return target_wd, start
+
+
+class BookingError(Exception):
+    def __init__(self, code: str, message: str = "") -> None:
+        super().__init__(message or code)
+        self.code = code
+
+
+_catalog_cache: dict[str, tuple[float, dict]] = {}
+
+
+class ApiBookingAdapter:
+    """Aster Bot API v1. Doctors and services are addressed by their stable codes ('claire-benson', 'botox')."""
+
+    CATALOG_TTL = 600
+    RETRY_WAITS = (0, 2, 4, 8)  # the backend answers 502/503 for up to a minute while it redeploys
+    transport: httpx.AsyncBaseTransport | None = None  # tests swap in httpx.MockTransport
+
+    def __init__(self, base_url: str, api_key: str, tz: str) -> None:
+        self.base = base_url.rstrip("/")
+        self.tz = ZoneInfo(tz)
+        self._headers = {"Authorization": f"Bearer {api_key}"}
+
+    async def _request(self, method: str, path: str, headers: dict | None = None, **kw) -> dict | list:
+        async with httpx.AsyncClient(timeout=15, transport=self.transport) as client:
+            for wait in self.RETRY_WAITS:
+                await asyncio.sleep(wait)
+                try:
+                    r = await client.request(method, self.base + path, headers={**self._headers, **(headers or {})}, **kw)
+                except httpx.HTTPError as exc:
+                    log.warning("booking api %s %s failed: %s", method, path, exc)
+                    continue
+                if r.status_code not in (502, 503, 504):
+                    break
+            else:
+                raise BookingError("UNAVAILABLE", "Booking system did not answer")
+        if r.status_code >= 400:
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            log.warning("booking api %s %s → %s %s", method, path, r.status_code, body.get("code"))
+            raise BookingError(body.get("code", f"HTTP_{r.status_code}"), body.get("message", ""))
+        return r.json()
+
+    async def catalog(self) -> dict:
+        cached = _catalog_cache.get(self.base)
+        if cached and clock.monotonic() - cached[0] < self.CATALOG_TTL:
+            return cached[1]
+        cat = {"doctors": await self._request("GET", "/doctors"), "services": await self._request("GET", "/services")}
+        _catalog_cache[self.base] = (clock.monotonic(), cat)
+        return cat
+
+    async def find_service(self, text: str) -> dict | None:
+        t = text.strip().lower()
+        services = (await self.catalog())["services"]
+        for match in (lambda s: t in (s["code"], s["code"].replace("-", " "), s["name"].lower()),
+                      lambda s: t in s["name"].lower() or s["name"].lower() in t):
+            hits = [s for s in services if match(s)]
+            if hits:
+                return hits[0]
+        return None
+
+    async def find_doctor(self, text: str) -> dict | None:
+        t = text.strip().lower()
+        for d in (await self.catalog())["doctors"]:
+            name = d["name"].lower()
+            if t in (d["code"], name) or t == name.split()[0] or t in name:
+                return d
+        return None
+
+    async def availability(self, service: str, doctor: str | None, preferred_day: str | None, limit: int = 3) -> list[dict]:
+        """Up to `limit` real slots, earliest first: [{'start': iso, 'doctor': code, 'doctor_name': ...}]."""
+        doctors = [d for d in (await self.catalog())["doctors"] if service in d["services"]]
+        if doctor:
+            doctors = [d for d in doctors if d["code"] == doctor]
+        today = datetime.now(self.tz).date()
+        target_wd, start = _parse_preferred_day(preferred_day, today, today)
+        days = [start + timedelta(days=i) for i in range(21 if target_wd is not None else 7)]
+        if target_wd is not None:
+            days = [d for d in days if d.weekday() == target_wd]
+        found: list[dict] = []
+        for day in days:
+            for d in doctors:
+                res = await self._request("GET", f"/doctors/{d['code']}/slots",
+                                          params={"date": day.isoformat(), "service": service})
+                found += [{"start": s, "doctor": d["code"], "doctor_name": d["name"]} for s in res["slots"]]
+            if len(found) >= limit:
+                break
+        return sorted(found, key=lambda s: s["start"])[:limit]
+
+    async def book(self, *, doctor: str, service: str, start: str, patient: dict, note: str, idempotency_key: str) -> dict:
+        """Raises BookingError('SLOT_TAKEN') when someone else got the time first."""
+        return await self._request(
+            "POST", "/appointments", headers={"Idempotency-Key": idempotency_key},
+            json={"doctor": doctor, "service": service, "start": start, "patient": patient, "note": note},
+        )
+
+    async def appointments_for(self, phone: str) -> list[dict]:
+        return await self._request("POST", "/appointments/search", json={"phone": phone})
+
+
+def api_adapter() -> ApiBookingAdapter | None:
+    s = get_settings()
+    if not s.booking_api_url:
+        return None
+    return ApiBookingAdapter(s.booking_api_url, s.booking_api_key, s.clinic_timezone)
 
 
 async def upcoming_appointments(db: AsyncSession, user_id: uuid.UUID) -> list[Appointment]:

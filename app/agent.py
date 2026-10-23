@@ -1,7 +1,9 @@
 """Single agent + small tool set. The LLM understands and phrases; code owns writes and safety."""
 
+import hashlib
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -10,15 +12,15 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import booking, journeys, knowledge
-from app.channels import Button
+from app.channels import Button, is_web_user
 from app.config import get_settings
 from app.handoff import create_handoff
 from app.llm import LLMProvider, ToolSpec, get_provider
-from app.models import AgentRun, Checkin, Journey, User
+from app.models import AgentRun, Appointment, Checkin, Journey, User
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "main@demo-4"
+PROMPT_VERSION = "main@demo-5"
 MAX_TOOL_STEPS = 6
 
 SYSTEM_PROMPT = """You are Aster, a recovery companion that supports patients of Essence Aesthetics & Wellness \
@@ -33,7 +35,8 @@ change often – when you mention one, add that they should confirm it with the 
 asks the patient to confirm with buttons. Do not treat it as saved until confirmed.
 3. Check in on recovery, record what the patient reports with record_recovery_update, and remember how symptoms change \
 using the SYMPTOM TIMELINE in the context.
-4. Help patients book a consultation or follow-up with check_availability and book_appointment.
+4. Help patients book a consultation, follow-up or treatment with check_availability and book_appointment, and \
+tell them about their upcoming visits with list_my_appointments.
 5. Recognise when the care team needs to be involved and use request_handoff.
 
 ## Safety rules (never break these)
@@ -78,6 +81,17 @@ Would that work?". Only list alternatives if they ask or decline.
 - When they accept the time you offered ("yes", "perfect", "that works"), call book_appointment with that exact slot \
 immediately, include a short symptom summary in notes_for_provider, then confirm the booking and say a reminder will \
 be sent the day before.
+- Pass what the visit is for as service (e.g. "Botox", "HydraFacial", "consultation"), and provider only if the \
+patient named one. If the patient hasn't said what it is for, ask in a few words first. Pass the service and provider \
+of the chosen slot to book_appointment.
+- If check_availability returns needs_consultation_first, explain that this treatment starts with a consultation and \
+offer one of book_instead. If it returns unknown_service, say what you can book from bookable_services.
+- If book_appointment returns need_patient_details, ask for exactly the missing items in one short message, then call \
+book_appointment again with the same slot. PATIENT_DETAILS in the context shows what is already on file – never ask \
+for those again.
+- If book_appointment returns pending_clinic_confirmation, say the request is in and the clinic will confirm – not \
+that it is booked. If it returns an error with a hint, follow the hint.
+- You can't cancel or move appointments yet: call request_handoff(reason="other") and say the team will help.
 - If the protocol has a provider_followup_visit, offer to book it when you wrap up the check-in.
 - Only promise "I'll check in again <when>" if NEXT_CHECKIN in the context says one is scheduled, and use that timing.
 - You are not a general-purpose assistant. Politely decline anything unrelated to Essence, the patient's treatments \
@@ -193,6 +207,9 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "purpose": {"type": "string", "enum": ["consultation", "follow_up", "new_treatment"]},
+                "service": {"type": "string", "description": "what the visit is for, e.g. 'Botox', 'HydraFacial', "
+                                                             "'consultation'"},
+                "provider": {"type": "string", "description": "only if the patient asked for someone, e.g. 'Claire'"},
                 "preferred_day": {"type": "string", "description": "e.g. 'next Thursday', 'Friday'"},
             },
             "required": ["purpose"],
@@ -206,10 +223,20 @@ TOOLS = [
             "properties": {
                 "slot": {"type": "string", "description": "exact ISO datetime from check_availability"},
                 "purpose": {"type": "string", "enum": ["consultation", "follow_up", "new_treatment"]},
+                "service": {"type": "string", "description": "the service of that slot, as check_availability returned"},
+                "provider": {"type": "string", "description": "the provider of that slot, as check_availability returned"},
                 "notes_for_provider": {"type": "string", "description": "short symptom/context summary for the care team"},
+                "patient_full_name": {"type": "string", "description": "only if the patient just gave it"},
+                "patient_birth_date": {"type": "string", "description": "YYYY-MM-DD, only if the patient just gave it"},
+                "patient_phone": {"type": "string", "description": "only if the patient just gave it"},
             },
             "required": ["slot", "purpose", "notes_for_provider"],
         },
+    ),
+    ToolSpec(
+        "list_my_appointments",
+        "The patient's upcoming appointments at Essence.",
+        {"type": "object", "properties": {}},
     ),
     ToolSpec(
         "request_handoff",
@@ -298,7 +325,16 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
         return {"status": "recorded", "worsening_vs_previous": worsening,
                 "timeline": await journeys.symptom_timeline(st.db, st.journey.id)}
 
+    api = booking.api_adapter()
+    if api and name in ("check_availability", "book_appointment", "list_my_appointments"):
+        return await _exec_booking_api(st, api, name, args)
+
     adapter = booking.MockBookingAdapter(s.clinic_timezone)
+    if name == "list_my_appointments":
+        appts = await booking.upcoming_appointments(st.db, st.user.id)
+        return {"appointments": [{"when": booking.fmt_slot(a.starts_at.astimezone(adapter.tz)), "purpose": a.purpose,
+                                  "provider": a.provider_name} for a in appts]}
+
     if name == "check_availability":
         slots = adapter.availability(args.get("preferred_day"))
         st.offered_slots.update(x.isoformat() for x in slots)
@@ -341,6 +377,115 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
                 "expectation": "The Essence team will reach out (demo: during clinic hours)."}
 
     return {"error": f"unknown_tool {name}"}
+
+
+# Booking backend error code → what the model should do next
+_BOOKING_HINTS = {
+    "SLOT_TAKEN": "That time was just taken. Call check_availability again and offer the next time.",
+    "OUTSIDE_HOURS": "Call check_availability again and offer one of the returned times.",
+    "TIME_IN_PAST": "Call check_availability again and offer one of the returned times.",
+    "INVALID_START": "Call check_availability again and offer one of the returned times.",
+    "SERVICE_NOT_OFFERED": "This provider doesn't do that service. Call check_availability without a provider.",
+    "SERVICE_REQUIRES_CONSULT": "This service needs a consultation first. Offer to book a consultation instead.",
+    "UNDER_18": "Tell the patient kindly that the clinic only books patients aged 18 or over.",
+    "INVALID_NAME": "Ask the patient for their full name again.",
+    "INVALID_PHONE": "Ask the patient for their mobile number again, with country code.",
+    "BIRTH_DATE_REQUIRED": "Ask the patient for their date of birth.",
+}
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name: str, args: dict) -> dict:
+    user = st.user
+    phone = user.phone if is_web_user(user.wa_id) else f"+{user.wa_id}"
+    try:
+        if name == "list_my_appointments":
+            if not phone:
+                return {"appointments": [], "note": "No phone number on file, so no bookings can be looked up."}
+            appts = [a for a in await api.appointments_for(phone) if a["status"] in ("SCHEDULED", "PENDING")]
+            return {"appointments": [{"when": booking.fmt_slot(datetime.fromisoformat(a["start"])),
+                                      "service": a["service"]["name"], "provider": a["doctor"]["name"],
+                                      "status": "confirmed" if a["status"] == "SCHEDULED" else "awaiting clinic confirmation"}
+                                     for a in appts]}
+
+        services = (await api.catalog())["services"]
+        svc = await api.find_service(args.get("service") or "consultation")
+        if svc is None:
+            return {"error": "unknown_service", "bookable_services": [x["name"] for x in services if x["botBookable"]]}
+        if not svc["botBookable"]:
+            return {"error": "needs_consultation_first", "service": svc["name"],
+                    "book_instead": [x["name"] for x in services if x["botBookable"] and "consult" in x["code"]]}
+        doctor = None
+        if args.get("provider"):
+            doctor = await api.find_doctor(args["provider"])
+            if doctor is None:
+                return {"error": "unknown_provider",
+                        "providers": [d["name"] for d in (await api.catalog())["doctors"] if svc["code"] in d["services"]]}
+
+        if name == "check_availability":
+            if doctor and svc["code"] not in doctor["services"]:
+                return {"error": "provider_does_not_offer_service", "hint": _BOOKING_HINTS["SERVICE_NOT_OFFERED"]}
+            slots = await api.availability(svc["code"], doctor["code"] if doctor else None, args.get("preferred_day"))
+            if not slots:
+                return {"slots": [], "note": "No openings found. Offer another day, or the clinic phone number."}
+            return {"service": svc["name"], "duration_minutes": svc.get("durationMinutes"),
+                    "slots": [{"slot": x["start"], "provider": x["doctor_name"],
+                               "label": booking.fmt_slot(datetime.fromisoformat(x["start"]))} for x in slots]}
+
+        # book_appointment
+        if doctor is None:
+            return {"error": "provider_required", "hint": "Pass the provider of the slot check_availability returned."}
+        try:
+            when = datetime.fromisoformat(args["slot"])
+        except ValueError:
+            return {"error": "invalid_slot"}
+        if args.get("patient_full_name"):
+            user.full_name = args["patient_full_name"].strip()[:120]
+        if args.get("patient_birth_date"):
+            if not _DATE_RE.match(args["patient_birth_date"].strip()):
+                return {"error": "invalid_birth_date", "hint": "Ask again and pass it as YYYY-MM-DD."}
+            user.birth_date = args["patient_birth_date"].strip()
+        if args.get("patient_phone"):
+            user.phone = phone = "+" + re.sub(r"\D", "", args["patient_phone"])[:15]
+        missing = [k for k, v in (("full name", user.full_name), ("date of birth", user.birth_date),
+                                  ("mobile number", phone)) if not v]
+        if missing:
+            return {"error": "need_patient_details", "missing": missing,
+                    "hint": "Ask for exactly these in one short message, then call book_appointment again."}
+        key_src = f"{st.source_message_ids[-1] if st.source_message_ids else uuid.uuid4()}|{args['slot']}|{doctor['code']}"
+        res = await api.book(
+            doctor=doctor["code"], service=svc["code"], start=args["slot"],
+            patient={"name": user.full_name, "phone": phone, "birthDate": user.birth_date, "email": None},
+            note=(args.get("notes_for_provider") or "")[:500] + " (via WhatsApp)",
+            idempotency_key=hashlib.sha256(key_src.encode()).hexdigest()[:40],
+        )
+    except booking.BookingError as e:
+        if e.code in _BOOKING_HINTS:
+            return {"error": e.code.lower(), "hint": _BOOKING_HINTS[e.code]}
+        log.error("booking backend error %s: %s", e.code, e)
+        await create_handoff(st.db, user, reason="booking_failed", urgency="routine",
+                             note=f"Booking system error {e.code} while the patient was booking.")
+        return {"error": "booking_system_unavailable",
+                "hint": "Apologise, say the team has been told and will help, and give the clinic phone number."}
+
+    confirmed = res["status"] == "SCHEDULED"
+    appt = Appointment(
+        user_id=user.id, journey_id=st.journey.id if st.journey else None, starts_at=when,
+        purpose=args.get("purpose", "consultation"), provider_name=res["doctor"]["name"], notes=args.get("notes_for_provider"),
+        status="confirmed" if confirmed else "pending", source="aster_api", service=svc["code"], external_ref=res["ref"],
+    )
+    st.db.add(appt)
+    await st.db.flush()
+    if not confirmed:
+        return {"status": "pending_clinic_confirmation",
+                "hint": "Say the request is in and the clinic will confirm it. Do not say it is booked."}
+    from app.followups import schedule_appointment_reminder
+
+    await schedule_appointment_reminder(st.db, user, appt)
+    st.booked = True
+    return {"status": "confirmed", "when": booking.fmt_slot(datetime.fromisoformat(res["start"])),
+            "service": res["service"]["name"], "provider": res["doctor"]["name"],
+            "address": res.get("store", {}).get("address"), "reminder": "A reminder will be sent the day before."}
 
 
 @dataclass

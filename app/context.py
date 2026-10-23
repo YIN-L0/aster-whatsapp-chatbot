@@ -67,6 +67,8 @@ async def build_context_block(
         "<context>",
         f"now_local: {now.strftime('%A %Y-%m-%d %H:%M')} ({user.timezone})",
         f"patient: first_name={user.first_name or 'unknown'}; health_consent={str(user.health_consent).lower()}",
+        f"PATIENT_DETAILS on file for booking: full_name={'yes' if user.full_name else 'no'}; "
+        f"date_of_birth={'yes' if user.birth_date else 'no'}",
     ]
     if journey:
         proto = journeys.get_protocol(journey.treatment_slug)

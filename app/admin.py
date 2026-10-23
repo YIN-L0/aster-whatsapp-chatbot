@@ -48,8 +48,9 @@ async def render(db: AsyncSession, key: str) -> str:
         chtml = "".join(f"<li>{escape(c.kind)} {'Day ' + str(c.day_offset) if c.day_offset is not None else ''} · "
                         f"{_t(c.due_at, tz)} · <b>{c.status}</b></li>" for c in checkins if c.status != "cancelled")
         appts = list(await db.scalars(select(Appointment).where(Appointment.user_id == u.id)))
-        ahtml = "".join(f"<li>{escape(a.purpose)} · {_t(a.starts_at, tz)} · {escape(a.provider_name)} "
-                        f"<span class=muted>(demo booking) {escape(a.notes or '')}</span></li>" for a in appts)
+        ahtml = "".join(f"<li>{escape(a.service or a.purpose)} · {_t(a.starts_at, tz)} · {escape(a.provider_name)} · "
+                        f"<b>{a.status}</b> <span class=muted>({a.source}{' ' + escape(a.external_ref) if a.external_ref else ''}) "
+                        f"{escape(a.notes or '')}</span></li>" for a in appts)
         handoffs = list(await db.scalars(select(Handoff).where(Handoff.user_id == u.id).order_by(Handoff.created_at.desc())))
         hhtml = "".join(f"<details><summary><span class='pill u-{h.urgency}'>{h.urgency}</span> {escape(h.reason)} · "
                         f"{h.status} · {_t(h.created_at, tz)}</summary><pre>{escape(h.summary)}</pre></details>"
@@ -67,6 +68,7 @@ async def render(db: AsyncSession, key: str) -> str:
                         f"</span></div>" for m in msgs)  # newest first; column-reverse shows it at the bottom
         cards.append(
             f"<section class=card><h3>{escape(u.first_name or u.display_name or 'Unknown')} "
+            f"{'<span class=muted>(' + escape(u.full_name) + (', born ' + u.birth_date if u.birth_date else '') + ')</span> ' if u.full_name else ''}"
             f"<span class=muted>+{u.wa_id[:-4]}•••• · mode: {u.conversation_mode} · onboarding: {u.onboarding_state} · consent: {u.health_consent} "
             f"· check-ins: {'on' if u.proactive_opt_in else 'off'}</span></h3>"
             f"<div class=grid><div><h5>Treatment journeys</h5>{''.join(jhtml) or '<p class=muted>None</p>'}"

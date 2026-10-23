@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Clinic / demo
     clinic_timezone: str = "America/Indiana/Indianapolis"
     privacy_policy_url: str = "https://aster-us.com/#/privacy"
+    # Aster booking backend (Bot API v1). Empty = demo mock slots.
+    booking_api_url: str = ""
+    booking_api_key: str = ""
     staff_whatsapp_numbers: str = ""  # comma separated wa_ids that receive handoff alerts
     demo_mode: bool = True
     admin_token: str = "admin-key"
