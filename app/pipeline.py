@@ -137,7 +137,7 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     rule = safety.prefilter(text)
     if rule.level >= 4:
         await outbound.send_text(
-            db, user, safety.emergency_reply(user.first_name, "(812) 320-2284", rule.hits), sender="aster_system"
+            db, user, safety.emergency_reply(user.first_name, "(317) 555-0142", rule.hits), sender="aster_system"
         )
         await create_handoff(
             db, user, reason="risk_l4", urgency="emergency",

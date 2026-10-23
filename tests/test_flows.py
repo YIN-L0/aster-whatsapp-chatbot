@@ -165,11 +165,11 @@ async def test_human_mode_still_answers_clinic_questions(channel):
     await handle_inbound(inbound("my upper lip has a white patch and it's turning purple"))  # → human mode
     fake = FakeProvider([
         [{"name": "search_knowledge", "input": {"query": "address"}}],
-        reply("We're at 1205 N Walnut St., Bloomington. The team has your message and will be in touch."),
+        reply("We're at 1840 Lakeview Dr., Indianapolis. The team has your message and will be in touch."),
     ])
     set_provider(fake)
     await handle_inbound(inbound("what's the clinic address?"))
-    assert "1205 N Walnut" in channel.sent[-1]["text"]
+    assert "1840 Lakeview" in channel.sent[-1]["text"]
     assert any("<human_mode>" in str(m.get("content")) for m in fake.calls[0].messages if m["role"] == "user")
     async with session_scope() as db:
         assert "+ Patient: what's the clinic address?" in (await db.scalar(select(Handoff))).summary
@@ -183,7 +183,7 @@ async def test_new_reason_on_open_handoff_alerts_staff_once(channel):
                                "input": {"reason": reason, "urgency": "routine", "note_for_staff": f"note {reason}"}}]
     set_provider(FakeProvider([
         handoff("risk_review"), reply("I've let the team know.", risk=2),
-        handoff("clinical_question"), reply("Michelle will review the dose question.", risk=2),
+        handoff("clinical_question"), reply("Megan will review the dose question.", risk=2),
         handoff("clinical_question"), reply("Flagged again.", risk=2),
     ]))
     await handle_inbound(inbound("I threw up twice yesterday"))

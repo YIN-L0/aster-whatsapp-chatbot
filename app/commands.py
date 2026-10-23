@@ -18,11 +18,11 @@ from app.models import (
 
 DEMO_SCENARIOS = {
     # key: (protocol slug, label, default day, provider)
-    "glp1": ("glp1", "GLP-1 (semaglutide) injection", 3, "Michelle Lee, FNP-BC"),
-    "nad": ("nad_plus", "NAD+ injection", 1, "Mendy Mullis, PA-C"),
-    "filler": ("dermal_filler", "Lip filler", 2, "Carlie Easton, RN"),
-    "body": ("body_contouring", "truSculpt iD body contouring", 1, "Deanna McAllister, FNP-BC"),
-    "botox": ("neuromodulator", "Botox", 1, "Carlie Easton, RN"),
+    "glp1": ("glp1", "GLP-1 (semaglutide) injection", 3, "Megan Clarke, FNP-BC"),
+    "nad": ("nad_plus", "NAD+ injection", 1, "Melissa Rowe, PA-C"),
+    "filler": ("dermal_filler", "Lip filler", 2, "Claire Benson, RN"),
+    "body": ("body_contouring", "truSculpt iD body contouring", 1, "Diane Mercer, FNP-BC"),
+    "botox": ("neuromodulator", "Botox", 1, "Claire Benson, RN"),
 }
 
 HELP = """*Aster demo commands*
@@ -71,7 +71,7 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
     if upper in ("HUMAN", "AGENT", "TALK TO A PERSON"):
         await create_handoff(db, user, reason="user_request", urgency="routine", note="Patient asked for a person.")
         await outbound.send_text(db, user, "Of course – I've asked the Essence team to reach out to you. You can also "
-                                           "call the clinic at (812) 320-2284.", sender="aster_system")
+                                           "call the clinic at (317) 555-0142.", sender="aster_system")
         return True
     if upper == "DELETE MY DATA":
         await create_handoff(db, user, reason="deletion_request", urgency="routine", note="Patient requested data deletion.")

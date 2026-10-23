@@ -109,7 +109,7 @@ HUMAN_MODE_ACK = (
 
 FALLBACK_REPLY = (
     "Sorry, I'm having trouble answering that right now. I've asked the Essence team to follow up with you. "
-    "If you feel unwell or something is getting worse, please call the clinic at (812) 320-2284, or 911 in an emergency."
+    "If you feel unwell or something is getting worse, please call the clinic at (317) 555-0142, or 911 in an emergency."
 )
 
 # ---------- post-check on agent output ----------
