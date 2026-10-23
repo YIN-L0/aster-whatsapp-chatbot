@@ -174,7 +174,12 @@ class ApiBookingAdapter:
             for d in doctors:
                 res = await self._request("GET", f"/doctors/{d['code']}/slots",
                                           params={"date": day.isoformat(), "service": service})
-                found += [{"start": s, "doctor": d["code"], "doctor_name": d["name"]} for s in res["slots"]]
+                kept: list[datetime] = []
+                for start in res["slots"]:  # slots come every 15 min; offer the same doctor at most hourly
+                    t = datetime.fromisoformat(start)
+                    if all(abs(t - k) >= timedelta(hours=1) for k in kept):
+                        kept.append(t)
+                        found.append({"start": start, "doctor": d["code"], "doctor_name": d["name"]})
             if len(found) >= limit:
                 break
         return sorted(found, key=lambda s: s["start"])[:limit]

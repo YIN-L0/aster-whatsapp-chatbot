@@ -117,7 +117,11 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     # A. Button replies are handled deterministically – the LLM never commits journey data.
     button_id = (last.payload or {}).get("button_id")
     if button_id:
-        if await _handle_button(db, user, button_id):
+        if button_id.startswith("slot:"):
+            # A booking time button: the agent books it (it may still need the patient's name and date of birth)
+            last.body = _slot_button_text(button_id, last.body)
+            text = "\n".join(m.body for m in pending if m.body).strip()
+        elif await _handle_button(db, user, button_id):
             return
 
     # B. Commands (STOP/START/HUMAN, #demo …)
@@ -262,7 +266,16 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
     for msg in result.messages:
         await outbound.send_text(db, user, msg, agent_run_id=run.id)
     for body, buttons in st.after_reply_buttons:
+        if st.booked and buttons[0].id.startswith("slot:"):
+            continue  # booked in this turn – the time buttons are stale
         await outbound.send_buttons(db, user, body, buttons)
+
+
+def _slot_button_text(button_id: str, title: str) -> str:
+    if button_id == "slot:other":
+        return "Could you show me other times?"
+    start, doctor, service = button_id.removeprefix("slot:").split("|")
+    return f"Yes, please book {title.removeprefix('Book ')}. [slot={start} provider={doctor} service={service}]"
 
 
 async def _handle_button(db: AsyncSession, user: User, button_id: str) -> bool:

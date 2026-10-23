@@ -20,7 +20,7 @@ from app.models import AgentRun, Appointment, Checkin, Journey, User
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "main@demo-5"
+PROMPT_VERSION = "main@demo-6"
 MAX_TOOL_STEPS = 6
 
 SYSTEM_PROMPT = """You are Aster, a recovery companion that supports patients of Essence Aesthetics & Wellness \
@@ -81,6 +81,16 @@ Would that work?". Only list alternatives if they ask or decline.
 - When they accept the time you offered ("yes", "perfect", "that works"), call book_appointment with that exact slot \
 immediately, include a short symptom summary in notes_for_provider, then confirm the booking and say a reminder will \
 be sent the day before.
+- Be proactive: when a patient asks about a service you can book (price, what it involves, who does it) or about a \
+provider, answer briefly, then call check_availability for it in the same turn and end with ONE offer of the earliest \
+time, e.g. "Claire's next Botox opening is Tue, Oct 27 at 10:00 AM – would you like me to book it?". Buttons with the \
+times are added for you. Don't do this during a symptom check-in, when risk >= 2 (offer a consultation as described \
+above instead), or if the patient said they aren't ready to book.
+- A tapped time button arrives as "Yes, please book … [slot=… provider=… service=…]": that is acceptance. Call \
+book_appointment with exactly those slot, provider and service values.
+- When the patient accepts a time and PATIENT_DETAILS shows full_name=no or date_of_birth=no, ask for both in one \
+short message ("Great! To book it, what's your full name and date of birth?"), then call book_appointment with the \
+accepted slot as soon as they answer, converting the date to YYYY-MM-DD. Don't ask for anything else.
 - Pass what the visit is for as service (e.g. "Botox", "HydraFacial", "consultation"), and provider only if the \
 patient named one. If the patient hasn't said what it is for, ask in a few words first. Pass the service and provider \
 of the chosen slot to book_appointment.
@@ -430,6 +440,13 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
             slots = await api.availability(svc["code"], doctor["code"] if doctor else None, args.get("preferred_day"))
             if not slots:
                 return {"slots": [], "note": "No openings found. Offer another day, or the clinic phone number."}
+            st.after_reply_buttons = [b for b in st.after_reply_buttons if not b[1][0].id.startswith("slot:")]
+            st.after_reply_buttons.append((
+                "Tap a time to book it, or tell me another day.",
+                [Button(f"slot:{x['start']}|{x['doctor']}|{svc['code']}",
+                        f"Book {datetime.fromisoformat(x['start']):%-m/%-d %-I:%M %p}") for x in slots[:2]]
+                + [Button("slot:other", "Other times")],
+            ))
             return {"service": svc["name"], "duration_minutes": svc.get("durationMinutes"),
                     "slots": [{"slot": x["start"], "provider": x["doctor_name"],
                                "label": booking.fmt_slot(datetime.fromisoformat(x["start"]))} for x in slots]}

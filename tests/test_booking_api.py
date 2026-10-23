@@ -184,3 +184,34 @@ async def test_patient_words_match_backend_codes(monkeypatch):
                        "Daniel": "daniel-hayes", "megan-clarke": "megan-clarke"}.items():
         assert (await api.find_doctor(text))["code"] == code, text
     booking._catalog_cache.clear()
+
+
+async def test_offer_buttons_then_tap_to_book(channel, backend):
+    await onboard(channel)
+    async with session_scope() as db:
+        user = await db.scalar(select(User))
+        user.full_name, user.birth_date = "Emily Stone", "1990-04-02"
+    set_provider(FakeProvider([
+        [{"name": "check_availability", "input": {"purpose": "new_treatment", "service": "Botox"}}],
+        reply("Botox starts at $13/unit. Claire's next opening is tomorrow at 3:30 PM – want me to book it?",
+              intents=["service_question", "booking"]),
+    ]))
+    await handle_inbound(inbound("How much is Botox?"))
+    offer = channel.sent[-1]
+    assert offer["type"] == "buttons" and offer["buttons"][-1]["id"] == "slot:other"
+    first = offer["buttons"][0]
+    assert first["id"].endswith("|claire-benson|botox") and first["title"].startswith("Book ") and len(first["title"]) <= 20
+
+    slot = first["id"].removeprefix("slot:").split("|")[0]
+    fake = FakeProvider([
+        [{"name": "book_appointment", "input": {"slot": slot, "purpose": "new_treatment", "service": "botox",
+                                                "provider": "claire-benson", "notes_for_provider": "-"}}],
+        reply("You're all set! 💛", intents=["booking"]),
+    ])
+    set_provider(fake)
+    await handle_inbound(inbound(first["title"], button_id=first["id"]))
+    patient_said = [m["content"] for m in fake.calls[0].messages if m["role"] == "user"][-1]
+    assert f"[slot={slot} provider=claire-benson service=botox]" in patient_said
+    assert "all set" in channel.sent[-1]["text"]  # no stale time buttons after booking
+    async with session_scope() as db:
+        assert (await db.scalar(select(Appointment))).external_ref == "apt_test1"
