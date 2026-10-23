@@ -1,6 +1,6 @@
 ---
 title: Injectables
-url: https://vanishedaesthetics.com/aesthetics/injectables/
+url: https://www.essence-wellness.example/aesthetics/injectables/
 scope: service_info
 fetched: 2026-10-19
 treatments: neuromodulator, dermal_filler, biostimulator

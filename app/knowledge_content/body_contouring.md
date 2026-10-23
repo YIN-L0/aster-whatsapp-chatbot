@@ -1,6 +1,6 @@
 ---
 title: Body Contouring
-url: https://vanishedaesthetics.com/aesthetics/body-contouring/
+url: https://www.essence-wellness.example/aesthetics/body-contouring/
 scope: service_info
 fetched: 2026-10-19
 treatments: body_contouring

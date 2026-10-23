@@ -1,6 +1,6 @@
 ---
 title: Wellness Services
-url: https://vanishedaesthetics.com/wellness/
+url: https://www.essence-wellness.example/wellness/
 scope: service_info
 fetched: 2026-10-19
 ---

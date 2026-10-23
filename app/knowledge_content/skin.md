@@ -1,6 +1,6 @@
 ---
 title: Skin Treatments
-url: https://vanishedaesthetics.com/aesthetics/skin-treatments/
+url: https://www.essence-wellness.example/aesthetics/skin-treatments/
 scope: service_info
 fetched: 2026-10-19
 treatments: skin

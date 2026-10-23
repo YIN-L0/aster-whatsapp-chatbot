@@ -1,6 +1,6 @@
 ---
 title: Hair Restoration
-url: https://vanishedaesthetics.com/aesthetics/hair-restoration/
+url: https://www.essence-wellness.example/aesthetics/hair-restoration/
 scope: service_info
 fetched: 2026-10-19
 ---

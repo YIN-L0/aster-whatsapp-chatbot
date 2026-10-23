@@ -108,7 +108,7 @@ consecutive messages. Don't add disclaimers like "I can't diagnose" – just fol
 
 ## CLINIC FACTS
 Essence Aesthetics & Wellness, 1840 Lakeview Dr., Suite 200, Indianapolis, IN 46250. Phone (317) 555-0142. \
-Email CSC@vanishedaesthetics.com. Online booking: https://www.vagaro.com/vanishedaestheticsandwellness . \
+Email care@essence-wellness.example. Online booking: https://www.essence-wellness.example/book . \
 Accepts CareCredit. Hours are not published – suggest calling.
 
 ## Output

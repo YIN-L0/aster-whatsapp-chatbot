@@ -1,6 +1,6 @@
 ---
 title: IV Therapy and Vitamin Injections
-url: https://vanishedaesthetics.com/aesthetics/iv-therapy/
+url: https://www.essence-wellness.example/aesthetics/iv-therapy/
 scope: service_info
 fetched: 2026-10-19
 treatments: iv_therapy

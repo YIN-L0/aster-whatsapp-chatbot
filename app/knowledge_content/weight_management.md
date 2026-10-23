@@ -1,6 +1,6 @@
 ---
 title: Medical Weight Management
-url: https://vanishedaesthetics.com/wellness/weight-management/
+url: https://www.essence-wellness.example/wellness/weight-management/
 scope: service_info
 fetched: 2026-10-19
 treatments: glp1

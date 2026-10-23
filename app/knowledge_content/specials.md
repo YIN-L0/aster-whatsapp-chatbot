@@ -1,6 +1,6 @@
 ---
 title: Current Specials
-url: https://vanishedaesthetics.com/specials-events/
+url: https://www.essence-wellness.example/specials-events/
 scope: service_info
 fetched: 2026-10-19
 valid_note: Promotions change often – always tell patients to confirm with the clinic.
