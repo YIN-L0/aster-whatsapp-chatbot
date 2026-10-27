@@ -1,6 +1,6 @@
 # Aster — WhatsApp AI Companion (demo build)
 
-WhatsApp recovery companion for Essence Aesthetics & Wellness. This is the **2-day demo build**: a working
+WhatsApp recovery companion for Essence Aesthetics & Wellness. This is a working
 slice of the design in `docs/`, using **simulated patient data only**.
 
 - Design docs: [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md)
