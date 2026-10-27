@@ -1,10 +1,18 @@
-# Aster — WhatsApp AI Companion (demo build)
+# Aster — Longitudinal State → Context → Personalized Actions
 
-WhatsApp recovery companion for Essence Aesthetics & Wellness. This is a working
-slice of the design in `docs/`, using **simulated patient data only**.
+A multimodal agent system exploring long-term memory and cross-provider orchestration for health and wellness. It keeps track of user state over time, connects context across services, and proposes personalized next actions that reflect where the user actually is — not just what they said in the last message.
 
-- Design docs: [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md)
-- Demo: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) · Meta setup: [docs/META_SETUP.md](docs/META_SETUP.md)
+In this domain, memory is not a convenience feature. It is the difference between a generic reminder and a relevant next step. At the same time, memory goes stale, states change, and not every action should be automated. That tension is central to this work.
+
+What this system explores:
+
+- Longitudinal memory: how user state evolves over time, and how older context should be weighted, updated, or set aside when new information arrives.
+- Cross-provider orchestration: how context from different services can be combined into one coherent picture without losing track of where each piece came from.
+- Safe personalization: how to propose actions that are specific enough to be useful, while keeping permission, privacy, and human review built into exactly the places where automation should stop.
+
+The system verifies its output, escalates when risk is high, and hands off to a human rather than acting alone. In high-stakes settings, a well-timed handoff is a feature, not a failure.
+
+Scope: prototype / demo build on simulated data.
 
 ## Run locally
 
