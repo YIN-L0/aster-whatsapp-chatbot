@@ -215,3 +215,50 @@ async def test_offer_buttons_then_tap_to_book(channel, backend):
     assert "all set" in channel.sent[-1]["text"]  # no stale time buttons after booking
     async with session_scope() as db:
         assert (await db.scalar(select(Appointment))).external_ref == "apt_test1"
+
+
+async def test_availability_queries_doctors_and_days_in_parallel(backend):
+    """Slot lookups for several days and doctors go out together, and the earliest slots still come first."""
+    import asyncio
+
+    in_flight = peak = 0
+    orig = booking.ApiBookingAdapter._request
+
+    async def slow_request(self, method, path, headers=None, **kw):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.05)
+        try:
+            return await orig(self, method, path, headers, **kw)
+        finally:
+            in_flight -= 1
+
+    booking.ApiBookingAdapter._request = slow_request
+    try:
+        api = booking.api_adapter()
+        await api.catalog()
+        slots = await api.availability("consultation", None, None)
+    finally:
+        booking.ApiBookingAdapter._request = orig
+    assert peak > 1
+    assert [s["start"] for s in slots] == sorted(s["start"] for s in slots)
+    today = datetime.now(api.tz).date().isoformat()
+    assert slots[0]["start"].startswith(today) and len(slots) == 3
+    slot_days = {r.url.params["date"] for r in backend.requests if r.url.path.endswith("/slots")}
+    assert len(slot_days) == booking.ApiBookingAdapter.DAYS_PER_BATCH  # stopped after the first batch
+
+
+async def test_rate_limited_request_is_retried(backend, monkeypatch):
+    monkeypatch.setattr(booking.ApiBookingAdapter, "RETRY_WAITS", (0, 0, 0))
+    orig, calls = backend.handler, []
+
+    def flaky(req):
+        calls.append(req)
+        if len(calls) == 1:
+            return httpx.Response(429, json={"code": "RATE_LIMITED", "message": "Too many requests."})
+        return orig(req)
+
+    monkeypatch.setattr(booking.ApiBookingAdapter, "transport", httpx.MockTransport(flaky))
+    assert (await booking.api_adapter()._request("GET", "/services"))[0]["code"] == "botox"
+    assert len(calls) == 2

@@ -1,6 +1,7 @@
 """Read-only demo page: shows the structured data Aster builds from WhatsApp conversations.
 Not the staff dashboard (out of MVP scope) – it exists so the client can see what is stored."""
 
+from datetime import timedelta
 from html import escape
 from zoneinfo import ZoneInfo
 
@@ -8,7 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import journeys
-from app.models import AgentRun, Appointment, Checkin, Handoff, JournalEntry, Message, SymptomObservation, User
+from app.models import (
+    AgentRun, Appointment, Checkin, Handoff, JournalEntry, Message, SymptomObservation, User, utcnow,
+)
 
 RISK = {0: ("Routine", "r0"), 1: ("Expected", "r1"), 2: ("Review", "r2"), 3: ("Urgent", "r3"), 4: ("Emergency", "r4")}
 
@@ -60,7 +63,8 @@ async def render(db: AsyncSession, key: str) -> str:
         rhtml = "".join(
             f"<tr><td>{_t(r.created_at, tz)}</td><td>{r.kind}</td><td><span class='pill {RISK[r.risk_final][1]}'>"
             f"{RISK[r.risk_final][0]}</span></td><td>{escape(', '.join(t['tool'] for t in (r.tool_calls or [])))}</td>"
-            f"<td>{r.latency_ms} ms</td><td>{escape(', '.join(r.postcheck_violations or []))}</td></tr>" for r in runs
+            f"<td>{_secs(r.reply_ms)}</td><td>{_secs(r.latency_ms)}</td>"
+            f"<td>{escape(', '.join(r.postcheck_violations or []))}</td></tr>" for r in runs
         )
         msgs = list(await db.scalars(select(Message).where(Message.user_id == u.id)
                                      .order_by(Message.created_at.desc()).limit(300)))
@@ -75,11 +79,27 @@ async def render(db: AsyncSession, key: str) -> str:
             f"<h5>Check-ins & reminders</h5><ul>{chtml or '<li class=muted>None</li>'}</ul>"
             f"<h5>Appointments</h5><ul>{ahtml or '<li class=muted>None</li>'}</ul>"
             f"<h5>Handoffs to staff</h5>{hhtml or '<p class=muted>None</p>'}"
-            f"<h5>Agent runs</h5><table><tr><th>When</th><th>Kind</th><th>Risk</th><th>Tools</th><th>Latency</th>"
+            f"<h5>Agent runs</h5><table><tr><th>When</th><th>Kind</th><th>Risk</th><th>Tools</th><th>Reply</th><th>LLM</th>"
             f"<th>Post-check</th></tr>{rhtml}</table></div>"
             f"<div><h5>Conversation</h5><div class=chat>{mhtml}</div></div></div></section>"
         )
-    return PAGE.replace("{{CARDS}}", "".join(cards) or "<p class=muted>No conversations yet.</p>")
+    return (PAGE.replace("{{SPEED}}", await _reply_speed(db))
+            .replace("{{CARDS}}", "".join(cards) or "<p class=muted>No conversations yet.</p>"))
+
+
+def _secs(ms: int | None) -> str:
+    return f"{ms / 1000:.1f} s" if ms else "–"
+
+
+async def _reply_speed(db: AsyncSession) -> str:
+    """Reply times over the last 24 hours: received → first reply sent (see AgentRun.reply_ms)."""
+    since = utcnow() - timedelta(hours=24)
+    ms = sorted(await db.scalars(select(AgentRun.reply_ms).where(AgentRun.reply_ms.is_not(None),
+                                                                  AgentRun.created_at >= since)))
+    if not ms:
+        return "reply time (24h): no data yet"
+    return (f"reply time (24h, {len(ms)} replies): median {_secs(ms[len(ms) // 2])} · "
+            f"slowest 10% {_secs(ms[int(len(ms) * 0.9)])} · max {_secs(ms[-1])}")
 
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -99,5 +119,5 @@ td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}ul{mar
 .r1{background:#dff3e4;color:#1d5e33}.trend.worsening{color:#c0392b;font-weight:600}.trend.improving,.trend.resolved{color:#2e8b57}
 .chat{display:flex;flex-direction:column-reverse;gap:6px;max-height:640px;overflow:auto}.msg{padding:8px 10px;border-radius:10px;white-space:pre-wrap;max-width:90%;border:1px solid var(--line)}
 .msg.in{background:var(--in);align-self:flex-start}.msg.out{background:var(--out);align-self:flex-end}pre{white-space:pre-wrap;font-size:12px}
-</style></head><body><header><b>Aster</b> demo console · Essence Aesthetics & Wellness · <span class=muted>simulated data only · refreshes every 5s</span></header>
+</style></head><body><header><b>Aster</b> demo console · Essence Aesthetics & Wellness · <span class=muted>simulated data only · refreshes every 5s</span><br><span class=muted>{{SPEED}}</span></header>
 <main>{{CARDS}}</main></body></html>"""

@@ -22,7 +22,7 @@ services:
       - key: WA_VERIFY_TOKEN
         generateValue: true
       - key: LLM_PROVIDER
-        value: openai
+        value: anthropic
       - key: ANTHROPIC_MODEL
         value: claude-opus-5-5
       - key: DEMO_MODE
@@ -37,6 +37,8 @@ services:
         value: low
       - key: ANTHROPIC_EFFORT
         value: low
+      - key: ANTHROPIC_SPEED
+        value: fast            # Opus fast mode: ~3s replies instead of ~7s, ~2x price
       - key: WA_ACCESS_TOKEN
         sync: false
       - key: WA_PHONE_NUMBER_ID

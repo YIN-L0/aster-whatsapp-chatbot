@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from collections import defaultdict
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -176,10 +177,10 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         handoff = await open_handoff(db, user.id)
         if handoff:
             handoff.summary += f"\n+ Patient: {text[:300]}"
-        await _run_main_agent(db, user, pending, text, rule, human_mode=True)
+        await _run_main_agent(db, user, pending, text, rule, human_mode=True, received_at=last.created_at)
         return
 
-    await _run_main_agent(db, user, pending, text, rule)
+    await _run_main_agent(db, user, pending, text, rule, received_at=last.created_at)
 
 
 HUMAN_MODE_CONTEXT = (
@@ -193,7 +194,8 @@ HUMAN_MODE_CONTEXT = (
 
 
 async def _run_main_agent(
-    db: AsyncSession, user: User, pending: list[Message], text: str, rule, human_mode: bool = False
+    db: AsyncSession, user: User, pending: list[Message], text: str, rule, human_mode: bool = False,
+    received_at: datetime | None = None,
 ) -> None:
     journey = await journeys.get_primary_journey(db, user.id)
     checkin = await active_checkin(db, user)
@@ -239,10 +241,11 @@ async def _run_main_agent(
                                  note=f"Reply blocked by safety post-check ({', '.join(violations)})")
         else:
             result.messages, result.risk_level = retry.messages, max(result.risk_level, retry.risk_level)
-    await _finish_turn(db, user, run, result, violations)
+    await _finish_turn(db, user, run, result, violations, received_at)
 
 
-async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: AgentResult, violations: list[str]) -> None:
+async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: AgentResult, violations: list[str],
+                       received_at: datetime | None = None) -> None:
     st = result.state
     risk = max(run.risk_rule, result.risk_level)
     for entry_id in st.recorded_entry_ids:
@@ -263,8 +266,13 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
     run.output = {"messages": result.messages, "risk_reason": result.risk_reason, "intents": result.intents}
     run.postcheck_violations = violations or None
 
-    for msg in result.messages:
+    for i, msg in enumerate(result.messages):
         await outbound.send_text(db, user, msg, agent_run_id=run.id)
+        if i == 0 and received_at:
+            # What the patient waits for, minus WhatsApp's own delivery time (usually under a second each way).
+            run.reply_ms = int((utcnow() - received_at).total_seconds() * 1000)
+            log.info("reply sent in %.1fs (llm %.1fs, tools=%s) user=%s", run.reply_ms / 1000, run.latency_ms / 1000,
+                     ",".join(t["tool"] for t in (run.tool_calls or [])) or "-", user.id)
     for body, buttons in st.after_reply_buttons:
         if st.booked and buttons[0].id.startswith("slot:"):
             continue  # booked in this turn – the time buttons are stale

@@ -43,6 +43,8 @@ class Channel(Protocol):
 
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult: ...
 
+    async def show_typing(self, to: str, message_id: str) -> None: ...
+
 
 class WhatsAppChannel:
     def __init__(self) -> None:
@@ -96,6 +98,17 @@ class WhatsAppChannel:
             ]
         return await self._post({"to": to, "type": "template", "template": template})
 
+    async def show_typing(self, to: str, message_id: str) -> None:
+        """Blue ticks + "typing…" on the patient's phone until we reply (WhatsApp hides it after ~25s)."""
+        payload = {"messaging_product": "whatsapp", "status": "read", "message_id": message_id,
+                   "typing_indicator": {"type": "text"}}
+        try:
+            resp = await self._client.post(self._url, json=payload, headers=self._headers)
+            if resp.status_code != 200:
+                log.warning("typing indicator failed status=%s body=%s", resp.status_code, resp.text[:200])
+        except httpx.HTTPError as exc:
+            log.warning("typing indicator network error: %s", exc)
+
 
 @dataclass
 class ConsoleChannel:
@@ -123,6 +136,9 @@ class ConsoleChannel:
             print(f"\n🌸 Aster → {to}: <template {name} {params}>\n")
         return SendResult(ok=True)
 
+    async def show_typing(self, to: str, message_id: str) -> None:
+        pass
+
 
 WEB_PREFIX = "web"
 
@@ -143,6 +159,9 @@ class WebChannel:
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         return SendResult(ok=True)
 
+    async def show_typing(self, to: str, message_id: str) -> None:
+        pass  # the page shows its own typing dots while a reply is pending
+
 
 class RoutingChannel:
     """Sends web-chat users to WebChannel and everyone else to WhatsApp (or the console in local dev)."""
@@ -162,6 +181,9 @@ class RoutingChannel:
 
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         return await self._for(to).send_template(to, name, params)
+
+    async def show_typing(self, to: str, message_id: str) -> None:
+        await self._for(to).show_typing(to, message_id)
 
 
 _channel: Channel | None = None

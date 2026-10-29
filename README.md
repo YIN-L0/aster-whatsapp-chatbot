@@ -18,10 +18,12 @@ Scope: prototype / demo build on simulated data.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-cp .env.example .env            # add OPENAI_API_KEY (default), or ANTHROPIC_API_KEY + LLM_PROVIDER=anthropic
+cp .env.example .env            # add ANTHROPIC_API_KEY (default: Opus 5.5 fast), or OPENAI_API_KEY + LLM_PROVIDER=openai
 .venv/bin/python -m scripts.simulate --name Emily    # chat in the terminal, no Meta account needed
 .venv/bin/python -m pytest -q                        # tests use a scripted fake LLM
 .venv/bin/python -m scripts.simulate_patients p1 p8   # LLM-played patients (costs tokens; pick personas)
+.venv/bin/python -m scripts.run_scenarios            # scripted safety/booking checks + reply times (costs tokens)
+.venv/bin/python -m scripts.benchmark_models gpt4.1 opus-low-fast   # compare models on speed and checks
 .venv/bin/uvicorn app.main:app --reload              # webhook server; /demo?key=ADMIN_TOKEN
 ```
 

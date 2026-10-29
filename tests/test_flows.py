@@ -4,10 +4,10 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from app import journeys
+from app import admin, journeys
 from app.db import session_scope
 from app.llm import FakeProvider, set_provider
-from app.models import Appointment, Checkin, Handoff, Journey, SymptomObservation, User
+from app.models import AgentRun, Appointment, Checkin, Handoff, Journey, SymptomObservation, User
 from app.pipeline import handle_inbound
 from tests.conftest import inbound
 
@@ -215,3 +215,14 @@ async def test_not_now_blocks_ai_until_agree(channel):
     await handle_inbound(inbound("I Agree", button_id="consent:yes"))
     assert "$13" in channel.sent[-1]["text"]
     assert (await _user()).health_consent
+
+
+async def test_reply_time_is_recorded_and_shown_on_demo_page(channel):
+    await onboard(channel)
+    set_provider(FakeProvider([reply("We're at 1840 Lakeview Dr.", intents=["service_question"])]))
+    await handle_inbound(inbound("Where are you located?"))
+    async with session_scope() as db:
+        run = await db.scalar(select(AgentRun).where(AgentRun.kind == "main"))
+        assert run.reply_ms is not None and 0 <= run.reply_ms < 5000
+        page = await admin.render(db, "key")
+    assert "reply time (24h, 1 replies)" in page

@@ -20,12 +20,13 @@ class Settings(BaseSettings):
     wa_template_lang: str = "en_US"
 
     # LLM
-    llm_provider: str = "openai"  # openai | anthropic
+    llm_provider: str = "anthropic"  # anthropic | openai
     anthropic_model: str = "claude-opus-5-5"
-    anthropic_effort: str = "low"
+    anthropic_effort: str = "low"  # low | medium | high; empty = model default
+    anthropic_speed: str = "fast"  # "fast" = fast mode (Opus only, ~2x price)
     anthropic_fallbacks: bool = True
     openai_model: str = "gpt-5"
-    openai_reasoning_effort: str = "low"  # minimal | low | medium | high – lower = faster, cheaper replies
+    openai_reasoning_effort: str = "low"  # minimal | low | medium | high; empty for non-reasoning models (gpt-4.1)
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     # Simulated patients and eval judge – a different model from the bot under test
