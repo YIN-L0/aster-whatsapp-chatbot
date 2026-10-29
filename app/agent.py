@@ -20,7 +20,7 @@ from app.models import AgentRun, Appointment, Checkin, Journey, User
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "main@demo-6"
+PROMPT_VERSION = "main@demo-7"
 MAX_TOOL_STEPS = 6
 
 SYSTEM_PROMPT = """You are Aster, a recovery companion that supports patients of Essence Aesthetics & Wellness \
@@ -102,6 +102,10 @@ for those again.
 - If book_appointment returns pending_clinic_confirmation, say the request is in and the clinic will confirm – not \
 that it is booked. If it returns an error with a hint, follow the hint.
 - You can't cancel or move appointments yet: call request_handoff(reason="other") and say the team will help.
+- Bookings are always for the person you're chatting with – their name and phone number go on the booking. If they \
+want to book for someone else (a parent, partner, friend), don't ask for that person's details, offer times or book. \
+Kindly explain that the other person can message Essence on WhatsApp from their own phone or call (317) 555-0142, and \
+offer to ask the team to help (request_handoff(reason="other")). You may still answer general questions.
 - If the protocol has a provider_followup_visit, offer to book it when you wrap up the check-in.
 - Only promise "I'll check in again <when>" if NEXT_CHECKIN in the context says one is scheduled, and use that timing.
 - You are not a general-purpose assistant. Politely decline anything unrelated to Essence, the patient's treatments \
@@ -405,6 +409,20 @@ _BOOKING_HINTS = {
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def slot_buttons(slots: list[dict], service_code: str) -> list[Button]:
+    """Two time buttons + "Other times". Prefers two different times, and adds the provider's first name when it fits
+    WhatsApp's 20-char limit, so two providers free at the same time don't show as identical buttons."""
+    first, rest = slots[0], slots[1:]
+    second = next((x for x in rest if x["start"] != first["start"]), rest[0] if rest else None)
+    buttons = []
+    for x in [first] + ([second] if second else []):
+        when = datetime.fromisoformat(x["start"])
+        label = f"{when:%-m/%-d} " + (f"{when:%-I%p}" if when.minute == 0 else f"{when:%-I:%M%p}")
+        named = f"{label} {x['doctor_name'].split()[0]}"
+        buttons.append(Button(f"slot:{x['start']}|{x['doctor']}|{service_code}", named if len(named) <= 20 else label))
+    return buttons + [Button("slot:other", "Other times")]
+
+
 async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name: str, args: dict) -> dict:
     user = st.user
     phone = user.phone if is_web_user(user.wa_id) else f"+{user.wa_id}"
@@ -441,15 +459,14 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
             if not slots:
                 return {"slots": [], "note": "No openings found. Offer another day, or the clinic phone number."}
             st.after_reply_buttons = [b for b in st.after_reply_buttons if not b[1][0].id.startswith("slot:")]
-            st.after_reply_buttons.append((
-                "Tap a time to book it, or tell me another day.",
-                [Button(f"slot:{x['start']}|{x['doctor']}|{svc['code']}",
-                        f"Book {datetime.fromisoformat(x['start']):%-m/%-d %-I:%M %p}") for x in slots[:2]]
-                + [Button("slot:other", "Other times")],
-            ))
+            st.after_reply_buttons.append(
+                ("Tap a time to book it, or tell me another day.", slot_buttons(slots, svc["code"]))
+            )
             return {"service": svc["name"], "duration_minutes": svc.get("durationMinutes"),
                     "slots": [{"slot": x["start"], "provider": x["doctor_name"],
-                               "label": booking.fmt_slot(datetime.fromisoformat(x["start"]))} for x in slots]}
+                               "label": booking.fmt_slot(datetime.fromisoformat(x["start"]))} for x in slots],
+                    "note": "Buttons for these times are sent after your reply. Name the earliest time as a fact and "
+                            "end with ONE question asking if they'd like to book it – never ask whether to check times."}
 
         # book_appointment
         if doctor is None:
