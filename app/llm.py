@@ -71,6 +71,7 @@ class AnthropicProvider:
         self.model = s.anthropic_model
         self.effort = s.anthropic_effort
         self.use_fallbacks = s.anthropic_fallbacks
+        self.fast = s.anthropic_speed == "fast" and self.model.startswith("claude-opus")  # fast mode is Opus-only
 
     def start(self, system: str, history: list[dict]) -> Conversation:
         return Conversation(system=system, messages=[{"role": m["role"], "content": m["content"]} for m in history])
@@ -82,22 +83,27 @@ class AnthropicProvider:
             # Static system prompt first so it can be cached across turns.
             system=[{"type": "text", "text": conv.system, "cache_control": {"type": "ephemeral"}}],
             messages=conv.messages,
-            output_config={
-                "effort": self.effort,
-                "format": {"type": "json_schema", "schema": output_schema},
-            },
+            # Empty effort = model default (models without effort levels, e.g. claude-haiku-4-5, reject it)
+            output_config={"format": {"type": "json_schema", "schema": output_schema}}
+            | ({"effort": self.effort} if self.effort else {}),
         )
         if tools:
             kwargs["tools"] = [
                 {"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools
             ]
+        betas = []
+        if self.use_fallbacks:
+            # Server-side refusal fallback: if the model declines, the API re-runs on a fallback model.
+            betas.append("server-side-fallback-2026-07-01")
+            kwargs["fallbacks"] = "default"
+        if self.fast:
+            # Fast mode (Opus only): same model, faster output, premium price.
+            betas.append("fast-mode-2026-02-01")
+            kwargs["speed"] = "fast"
         started = time.monotonic()
         try:
-            if self.use_fallbacks:
-                # Server-side refusal fallback: if the model declines, the API re-runs on a fallback model.
-                resp = await self.client.beta.messages.create(
-                    **kwargs, betas=["server-side-fallback-2026-07-01"], fallbacks="default"
-                )
+            if betas:
+                resp = await self.client.beta.messages.create(**kwargs, betas=betas)
             else:
                 resp = await self.client.messages.create(**kwargs)
         except self._anthropic.BadRequestError as exc:
@@ -160,12 +166,13 @@ class OpenAIProvider:
             model=self.model,
             messages=conv.messages,
             max_completion_tokens=8000,
-            reasoning_effort=self.reasoning_effort,
             response_format={
                 "type": "json_schema",
                 "json_schema": {"name": "agent_turn", "schema": output_schema, "strict": True},
             },
         )
+        if self.reasoning_effort:  # empty for non-reasoning models (gpt-4.1, gpt-4o), which reject it
+            kwargs["reasoning_effort"] = self.reasoning_effort
         if tools:
             kwargs["tools"] = [
                 {"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}

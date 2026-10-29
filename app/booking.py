@@ -110,13 +110,25 @@ class BookingError(Exception):
 
 
 _catalog_cache: dict[str, tuple[float, dict]] = {}
+_clients: dict[int, httpx.AsyncClient] = {}
+
+
+def _http_client(transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
+    """One long-lived client (per transport, so tests can swap in a mock) – reuses connections instead of a new
+    TLS handshake for every request."""
+    key = id(transport)
+    if key not in _clients:
+        _clients[key] = httpx.AsyncClient(timeout=15, transport=transport)
+    return _clients[key]
 
 
 class ApiBookingAdapter:
     """Aster Bot API v1. Doctors and services are addressed by their stable codes ('claire-benson', 'botox')."""
 
     CATALOG_TTL = 600
-    RETRY_WAITS = (0, 2, 4, 8)  # the backend answers 502/503 for up to a minute while it redeploys
+    MAX_PARALLEL = 5  # slot requests in flight at once
+    DAYS_PER_BATCH = 3
+    RETRY_WAITS = (0, 2, 4, 8)  # the backend answers 502/503 while it redeploys, 429 when rate limited
     transport: httpx.AsyncBaseTransport | None = None  # tests swap in httpx.MockTransport
 
     def __init__(self, base_url: str, api_key: str, tz: str) -> None:
@@ -125,18 +137,18 @@ class ApiBookingAdapter:
         self._headers = {"Authorization": f"Bearer {api_key}"}
 
     async def _request(self, method: str, path: str, headers: dict | None = None, **kw) -> dict | list:
-        async with httpx.AsyncClient(timeout=15, transport=self.transport) as client:
-            for wait in self.RETRY_WAITS:
-                await asyncio.sleep(wait)
-                try:
-                    r = await client.request(method, self.base + path, headers={**self._headers, **(headers or {})}, **kw)
-                except httpx.HTTPError as exc:
-                    log.warning("booking api %s %s failed: %s", method, path, exc)
-                    continue
-                if r.status_code not in (502, 503, 504):
-                    break
-            else:
-                raise BookingError("UNAVAILABLE", "Booking system did not answer")
+        client = _http_client(self.transport)
+        for wait in self.RETRY_WAITS:
+            await asyncio.sleep(wait)
+            try:
+                r = await client.request(method, self.base + path, headers={**self._headers, **(headers or {})}, **kw)
+            except httpx.HTTPError as exc:
+                log.warning("booking api %s %s failed: %s", method, path, exc)
+                continue
+            if r.status_code not in (429, 502, 503, 504):  # rate limited or redeploying: wait and try again
+                break
+        else:
+            raise BookingError("UNAVAILABLE", "Booking system did not answer")
         if r.status_code >= 400:
             body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
             log.warning("booking api %s %s → %s %s", method, path, r.status_code, body.get("code"))
@@ -148,8 +160,8 @@ class ApiBookingAdapter:
         if cached and clock.monotonic() - cached[0] < self.CATALOG_TTL:
             return cached[1]
         # Only doctors with a stable code can be booked by the bot; others belong to stores this bot doesn't serve
-        doctors = [d for d in await self._request("GET", "/doctors") if d.get("code")]
-        cat = {"doctors": doctors, "services": await self._request("GET", "/services")}
+        doctors, services = await asyncio.gather(self._request("GET", "/doctors"), self._request("GET", "/services"))
+        cat = {"doctors": [d for d in doctors if d.get("code")], "services": services}
         _catalog_cache[self.base] = (clock.monotonic(), cat)
         return cat
 
@@ -169,13 +181,21 @@ class ApiBookingAdapter:
         days = [start + timedelta(days=i) for i in range(21 if target_wd is not None else 7)]
         if target_wd is not None:
             days = [d for d in days if d.weekday() == target_wd]
-        found: list[dict] = []
-        for day in days:
-            for d in doctors:
+        sem = asyncio.Semaphore(self.MAX_PARALLEL)
+
+        async def slots(day: date, d: dict) -> list[str]:
+            async with sem:
                 res = await self._request("GET", f"/doctors/{d['code']}/slots",
                                           params={"date": day.isoformat(), "service": service})
+            return res["slots"]
+
+        found: list[dict] = []
+        # Ask for a few days at once (all doctors in parallel) and stop at the first batch that has enough slots.
+        for i in range(0, len(days), self.DAYS_PER_BATCH):
+            pairs = [(day, d) for day in days[i:i + self.DAYS_PER_BATCH] for d in doctors]
+            for (day, d), starts in zip(pairs, await asyncio.gather(*(slots(day, d) for day, d in pairs))):
                 kept: list[datetime] = []
-                for start in res["slots"]:  # slots come every 15 min; offer the same doctor at most hourly
+                for start in starts:  # slots come every 15 min; offer the same doctor at most hourly
                     t = datetime.fromisoformat(start)
                     if all(abs(t - k) >= timedelta(hours=1) for k in kept):
                         kept.append(t)
