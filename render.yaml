@@ -15,8 +15,8 @@ services:
         value: 3.12.7
       - key: DATABASE_URL
         fromDatabase:
-          name: aster-db
-          property: connectionString
+          name: aster-db-ohio
+          property: connectionString   # internal URL – works only in the same region as this service
       - key: ADMIN_TOKEN
         value: admin-key
       - key: WA_VERIFY_TOKEN
@@ -49,6 +49,9 @@ services:
         sync: false
 
 databases:
-  - name: aster-db
+  # Same region as the web service: each reply makes ~20 queries, and a cross-region database added 2–3 s per reply.
+  # (The first database, aster-db, was created in Oregon because no region was set; free databases also expire.)
+  - name: aster-db-ohio
     databaseName: aster
-    plan: free
+    region: ohio
+    plan: basic-256mb
