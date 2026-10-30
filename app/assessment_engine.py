@@ -303,7 +303,10 @@ def evaluate(answers: dict, brand: str | None = None) -> dict:
     intake = None
     foods = [f for f in eat.get("foods") or [] if isinstance(f, dict)] if isinstance(eat.get("foods"), list) else []
     if _num(eat.get("meals_per_day"), 0, 12) is not None or diet_flags or foods:
-        total = sum(_num(f.get("kcal_est"), 0, 5000) or 0 for f in foods) or None
+        # A kcal total only means something for a whole day's food, not a food or two mentioned in passing
+        meals = _num(eat.get("meals_per_day"), 0, 12) or 0
+        total = sum(_num(f.get("kcal_est"), 0, 5000) or 0 for f in foods) if len(foods) >= max(2, meals) else None
+        total = total or None
         intake = intake_band(total, need, diet_flags)
     dclass = diet_class(diet_flags, intake, bmi_code) if intake or diet_flags else None
     nutrition_concern = bool(

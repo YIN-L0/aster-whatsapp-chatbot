@@ -10,7 +10,7 @@ bmi:
   - {code: bmi_over_low, below: 27.5, label: Slightly overweight, interpretation: in the lower part of the overweight range}
   - {code: bmi_over_high, below: 30.0, label: Overweight, interpretation: in the upper part of the overweight range}
   - {code: bmi_ob1, below: 35.0, label: Obesity class I, interpretation: in the obesity range}
-  - {code: bmi_ob2, below: 40.0, label: Obesity class II, interpretation: in the severe obesity range}
+  - {code: bmi_ob2, below: 40.0, label: Obesity class II, interpretation: in the obesity range (class II)}
   - {code: bmi_ob3, label: Obesity class III, interpretation: in the severe obesity range}
 
 # §3 Daily energy needs
@@ -39,6 +39,7 @@ exercise:
     pilates: {label: Pilates, met: 2.8, category: F}
     stretching: {label: Stretching, met: 2.3, category: B}
     gardening: {label: "Gardening, moderate", met: 3.8, category: B}
+    tai_chi: {label: "Tai chi / qigong", met: 3.0, category: B}
     cycle_leisure: {label: "Cycling, leisure", met: 6.8, category: C}
     cycle_moderate: {label: "Cycling, moderate (12–14 mph)", met: 8.0, category: C}
     cycle_stationary: {label: "Stationary bike", met: 6.8, category: C}
@@ -53,6 +54,7 @@ exercise:
     hiit: {label: "HIIT, moderate", met: 7.0, category: C}
     hiit_vig: {label: "HIIT, vigorous", met: 11.0, category: C}
     zumba: {label: "Zumba / dance class", met: 6.5, category: C}
+    dance: {label: "Dance (ballet, modern, jazz, general)", met: 5.0, category: C}
     weights: {label: "Weight training", met: 3.5, category: D}
     weights_heavy: {label: "Heavy lifts (squats, deadlifts)", met: 5.0, category: D}
     weights_vig: {label: "Bodybuilding / power lifting", met: 6.0, category: D}

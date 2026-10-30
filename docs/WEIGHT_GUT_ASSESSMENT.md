@@ -42,7 +42,7 @@ routine handoff to the brand's care team. The conversation stays in AI mode.
 | bmi_over_low | Slightly overweight | 25.0–27.4 | Lower part of the overweight range |
 | bmi_over_high | Overweight | 27.5–29.9 | Upper part of the overweight range |
 | bmi_ob1 | Obesity class I | 30.0–34.9 | Obesity |
-| bmi_ob2 | Obesity class II | 35.0–39.9 | Severe obesity |
+| bmi_ob2 | Obesity class II | 35.0–39.9 | Obesity (class II) |
 | bmi_ob3 | Obesity class III | ≥ 40.0 | Severe obesity |
 
 Grade A (WHO classes). The 27.5 split matches WHO's extra "public health action points" (23, 27.5, 32.5, 37.5).
@@ -100,6 +100,7 @@ Physical Activities** (Grade B, adults 19–59). The kcal column is for 70 kg an
 | pilates | Pilates, general | 2.8 | 98 | F |
 | stretching | Stretching, mild | 2.3 | 81 | B |
 | gardening | Gardening, moderate | 3.8 | 133 | B |
+| tai_chi | Tai chi / qigong, general | 3.0 | 105 | B |
 | cycle_leisure | Cycling 10–11.9 mph | 6.8 | 238 | C |
 | cycle_moderate | Cycling 12–13.9 mph | 8.0 | 280 | C |
 | cycle_stationary | Stationary bike 101–125 W | 6.8 | 238 | C |
@@ -114,6 +115,7 @@ Physical Activities** (Grade B, adults 19–59). The kcal column is for 70 kg an
 | hiit | HIIT, moderate | 7.0 | 245 | C |
 | hiit_vig | HIIT, vigorous (burpees, Tabata) | 11.0 | 385 | C |
 | zumba | Zumba / aerobic dance class | 6.5 | 228 | C |
+| dance | Dance: ballet, modern, jazz, general | 5.0 | 175 | C |
 | weights | Resistance training, 8–15 reps | 3.5 | 123 | D |
 | weights_heavy | Squats / deadlifts | 5.0 | 175 | D |
 | weights_vig | Bodybuilding / power lifting, vigorous | 6.0 | 210 | D |
@@ -209,7 +211,9 @@ the user as an exact number.
 | Protein shake | 1 | 150–250 | 20–30 g protein |
 
 ### 5.3 Intake vs need
-Self-reported intake is usually **under-reported**, often by 10–30% or more. So the bot only uses wide bands:
+Self-reported intake is usually **under-reported**, often by 10–30% or more. The kcal estimate is only used when the foods
+cover a whole day (at least 2 items, and at least one per reported meal); a food mentioned in passing, such as a
+symptom trigger, is not an intake. So the bot only uses wide bands:
 
 | Code | Rule | What the bot says |
 |---|---|---|

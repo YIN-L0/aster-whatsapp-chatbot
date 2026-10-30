@@ -378,3 +378,15 @@ def test_no_limited_evidence_add_on_next_to_an_indicated_test():
     r = eng.evaluate({"a2_q2": {"gi_symptoms": ["gluten"], "family_history": ["fh_celiac"]},
                       "a2_q3": {"testing_goal": "understand_symptoms"}}, BRAND)
     assert [t["code"] for t in r["tests"]] == ["t_celiac"]
+
+
+def test_a_food_mentioned_in_passing_is_not_a_days_intake():
+    body = {"a1_q1": {"weight_kg": 58, "height_cm": 160, "age": 38, "sex": "female"}}
+    trigger = eng.evaluate({**body, "a1_q3": {"foods": [{"item": "bread", "kcal_est": 80}]}}, BRAND)
+    assert trigger["intake"] == "intake_unclear"
+    short = eng.evaluate({**body, "a1_q3": {"meals_per_day": 3, "foods": [{"item": "toast", "kcal_est": 150},
+                                                                          {"item": "salad", "kcal_est": 300}]}}, BRAND)
+    assert short["intake"] == "intake_unclear"  # 2 foods can't cover 3 meals
+    day = eng.evaluate({**body, "a1_q3": {"meals_per_day": 2, "foods": [{"item": "toast", "kcal_est": 150},
+                                                                        {"item": "salad", "kcal_est": 300}]}}, BRAND)
+    assert day["intake"] == "intake_likely_below"
