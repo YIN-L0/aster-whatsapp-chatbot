@@ -18,10 +18,11 @@ energy:
   activity_factors: {inactive: 1.2, low: 1.375, meets_guideline: 1.55, high: 1.725}
   min_kcal: {female: 1200, male: 1500}
   deficit_kcal: [300, 500]
-  # DGA 2020–2025 Appendix 2 – used when height or weight is missing. sedentary = inactive/low, active = the rest.
+  # DGA 2020–2025 Appendix 2 – used when height or weight is missing. A row covers ages from min_age up to the next row.
+  # sedentary = inactive/low, active = the rest.
   dga_fallback:
-    - {min_age: 0, max_age: 60, female: {sedentary: [1600, 2000], active: [2200, 2400]}, male: {sedentary: [2200, 2600], active: [2600, 3000]}}
-    - {min_age: 61, max_age: 200, female: {sedentary: [1600, 1600], active: [2000, 2000]}, male: {sedentary: [2000, 2000], active: [2400, 2600]}}
+    - {min_age: 0, female: {sedentary: [1600, 2000], active: [2200, 2400]}, male: {sedentary: [2200, 2600], active: [2600, 3000]}}
+    - {min_age: 61, female: {sedentary: [1600, 1600], active: [2000, 2000]}, male: {sedentary: [2000, 2000], active: [2400, 2600]}}
 
 # §4 Exercise – METs from the 2024 Adult Compendium. category: B light · C cardio · D strength · E both · F sports/other
 exercise:
@@ -201,7 +202,7 @@ tests:
   t_celiac: {label: Celiac blood test (tTG-IgA + total IgA), grade: A, goals: [understand_symptoms], service: s_labs,
              limitation: "It's only accurate while you're still eating gluten."}
   t_calprotectin: {label: Fecal calprotectin, grade: A, goals: [understand_symptoms], service: s_gut_eval, limitation: null}
-  t_nutrients: {label: Targeted nutrient blood tests, grade: A, goals: [understand_symptoms, genetics_nutrition], service: s_labs, limitation: null}
+  t_nutrients: {label: Targeted nutrient blood tests, grade: A, goals: [understand_symptoms, genetics_nutrition], service: s_nutrient_labs, limitation: null}
   t_hba1c: {label: HbA1c (blood sugar) test, grade: A, goals: [inherited_risk, understand_symptoms], service: s_labs, limitation: null}
   t_lipids: {label: Lipid panel, grade: A, goals: [inherited_risk], service: s_labs, limitation: null}
   t_food_sensitivity: {label: IgG food sensitivity panel, grade: X, goals: [], service: null,
@@ -219,6 +220,7 @@ services:
   s_sports_nutrition: {label: Sports nutrition coaching, kind: book}
   s_gut_eval: {label: Gut health evaluation, kind: book}
   s_labs: {label: Lab tests, kind: book}
+  s_nutrient_labs: {label: Nutrient blood panel, kind: subscribe}
   s_genetic_counsel: {label: Genetic counseling, kind: book}
   s_medspa: {label: Med spa consultation (Essence), kind: referral}
   s_medical_weight: {label: Medical weight management consultation (Essence), kind: referral}

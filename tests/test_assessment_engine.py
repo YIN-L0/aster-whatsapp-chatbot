@@ -309,3 +309,72 @@ def test_yaml_codes_match_the_tables_doc(section):
     codes = [row["code"] for row in data] if isinstance(data, list) else list(data)
     missing = [c for c in codes if not re.search(rf"\b{re.escape(c)}\b", doc)]
     assert not missing, f"in YAML but not in {DOC.name}: {missing}"
+
+
+# ---------- regressions found by fuzzing and persona review (2026-10-30) ----------
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"a1_q1": {"weight_kg": "180 lb", "height_cm": "5'6", "age": "forty"}},
+        {"a1_q1": {"weight_kg": True, "height_cm": [], "age": -5}},
+        {"a1_q2": {"activities": ["run_6", 42, None, {"code": ["x"], "intensity": {}, "minutes": "lots"}]}},
+        {"a1_q3": {"meals_per_day": "3", "foods": ["pizza", {"kcal_est": "a lot"}], "diet_flags": "sugary_drinks"}},
+        {"a2_q2": {"gi_symptoms": [{"code": "dairy"}], "family_history": "fh_celiac"}},
+        {"q0": "lose weight", "a1_q1": None, "a2_q3": ["curiosity"]},
+        "not a dict",
+    ],
+)
+def test_messy_llm_input_never_crashes_and_becomes_unknown(answers):
+    r = eng.evaluate(answers, BRAND)
+    assert r["bmi"] is None
+    assert len(r["services"]) <= 2
+
+
+def test_numeric_strings_are_accepted():
+    r = eng.evaluate({"a1_q1": {"weight_kg": "70", "height_cm": "175", "age": "30", "sex": "male"},
+                      "a1_q2": {"activities": [{"code": "jog", "sessions_per_week": "3", "minutes": "30"}]}}, BRAND)
+    assert r["bmi"]["value"] == 22.9
+    assert r["exercise"]["weekly_moderate_eq_min"] == 180
+
+
+def test_age_between_dga_rows_still_has_a_need():
+    assert eng.energy_need(age=60.5, sex="female", activity_level="inactive") == (1600, 2000)
+    assert eng.energy_need(age=61, sex="female", activity_level="inactive") == (1600, 1600)
+
+
+def test_routine_labs_go_to_the_partner_lab_not_the_nutrient_subscription():
+    r = eng.evaluate({"a1_q1": {"weight_kg": 72, "height_cm": 166, "age": 72, "sex": "female"}}, BRAND)
+    labs = next(s for s in r["services"] if "t_hba1c" in s["tests"])
+    assert labs["product"]["code"] == "pt_labs"
+    vegan = eng.evaluate({"a1_q3": {"meals_per_day": 2, "diet_flags": ["meal_skipping_fatigue"]},
+                          "a2_q1": {"diet_plans": ["vegan"]}}, BRAND)
+    assert next(s for s in vegan["services"] if "t_nutrients" in s["tests"])["product"]["code"] == "hh_dna_blood"
+
+
+def test_glp1_users_get_no_medical_weight_referral_and_side_effects_hand_off():
+    base = {"q0": {"goal": "lose_weight"}, "a1_q1": {"weight_kg": 98, "height_cm": 165, "age": 48, "sex": "female"}}
+    ok = eng.evaluate({**base, "a2_q1": {"diet_plans": ["glp1"], "glp1": "effective"}}, BRAND)
+    assert _services(ok)[0] == "s_glp1_program" and "s_medical_weight" not in _services(ok)
+    side = eng.evaluate({**base, "a2_q1": {"glp1": "side_effects"}}, BRAND)
+    assert side["handoff"] == {"reason": "glp1_side_effects", "urgency": "routine"}
+    assert "s_medical_weight" in _services(eng.evaluate(base, BRAND))  # not on GLP-1: referral is fine
+
+
+def test_low_protein_lifter_gets_sports_nutrition_first():
+    r = eng.evaluate({"a1_q2": {"activities": [{"code": "weights_heavy", "sessions_per_week": 4, "minutes": 60}]},
+                      "a1_q3": {"meals_per_day": 2, "diet_flags": ["low_protein"]}}, BRAND)
+    assert _services(r)[0] == "s_sports_nutrition"
+
+
+def test_balanced_diet_is_about_right_not_unclear():
+    r = eng.evaluate({"a1_q3": {"meals_per_day": 3, "diet_flags": ["balanced"]}}, BRAND)
+    assert r["intake"] == "intake_about_right" and r["diet_class"] == "healthy_balanced"
+    assert r["case"] == "B"
+
+
+def test_no_limited_evidence_add_on_next_to_an_indicated_test():
+    r = eng.evaluate({"a2_q2": {"gi_symptoms": ["gluten"], "family_history": ["fh_celiac"]},
+                      "a2_q3": {"testing_goal": "understand_symptoms"}}, BRAND)
+    assert [t["code"] for t in r["tests"]] == ["t_celiac"]

@@ -38,7 +38,7 @@ products:
      about: "Lifestyle and nutrition strategy, including moving on or off GLP-1 medication."}
   - {code: hh_maintenance, name: Maintenance Coaching Membership, price: "$299", kind: subscribe, recommend: ask, serves: [],
      about: "Periodic dietitian check-ins after a core program."}
-  - {code: hh_dna_blood, name: DNA + Blood Nutrition Program, price: "$99/month", kind: subscribe, recommend: assess, serves: [s_labs],
+  - {code: hh_dna_blood, name: DNA + Blood Nutrition Program, price: "$99/month", kind: subscribe, recommend: assess, serves: [s_nutrient_labs],
      about: "DNA analysis, 2 blood nutrient panels, coaching and 3 months of vitamins."}
   - {code: hh_glp1_program, name: Steady on GLP-1 Program (4 months), price: "$129", kind: subscribe, recommend: assess, serves: [s_glp1_program],
      about: "Support while on or starting GLP-1 medication: protein, digestion, muscle and habits, with coaching."}

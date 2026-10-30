@@ -120,7 +120,8 @@ The `.example` domain never resolves, so nobody can pay by accident. In the web 
 | s_programs | hh_programs |
 | s_glp1_program | hh_glp1_program |
 | s_dietitian | hh_coach_review or hh_coach_membership (coaches are registered dietitians) |
-| s_labs (nutrients) | hh_dna_blood; other labs → partner |
+| s_nutrient_labs | hh_dna_blood |
+| s_labs | Partner lab (mock provider) |
 | s_fitness, s_sports_nutrition, s_gut_eval, s_genetic_counsel | Partner (mock providers) |
 | s_medspa | Referral to Essence |
 | s_medical_weight | Referral to Essence medical weight management |

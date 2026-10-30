@@ -326,7 +326,8 @@ or `fh_early_heart_disease` (§9 FH row) · `fh_diabetes` (§9 HbA1c row).
 | t_food_sensitivity | Asks about food sensitivity (IgG) tests | IgG food panel | IgG antibodies (show exposure, not intolerance) | X: ACG 2021 does not recommend it | Explain the limits; suggest a symptom diary or a dietitian instead |
 
 Choice rule: from the user's `testing_goal` and findings, pick **at most 2** tests, A-graded rows first. If
-`testing_goal = none`, skip testing.
+`testing_goal = none`, skip testing. Grade C/X tests are only offered when no clinically indicated test applies.
+No medical weight referral for users already on GLP-1.
 
 ## 10. Services
 
@@ -345,7 +346,8 @@ the fictional **Helix & Harvest** — products, prices and mapping in
 | s_fitness | Fitness coaching — resistance training / cardio / mobility | Partner (mock provider) | Category A/B, or C without strength |
 | s_sports_nutrition | Sports nutrition coaching | Partner (mock provider) | Category D/E, `low_protein` |
 | s_gut_eval | Gut health evaluation (primary care / GI) | Partner (mock provider) | Persistent GI rows in §8 |
-| s_labs | Lab tests (HbA1c, lipids, nutrients, celiac) | hh_dna_blood $99/month for nutrients; others partner | §9 A-graded rows |
+| s_labs | Lab tests (HbA1c, lipids, celiac) | Partner lab (mock provider) | §9 A-graded rows |
+| s_nutrient_labs | Nutrient blood panel (iron, B12, vitamin D…) | hh_dna_blood $99/month | `t_nutrients` |
 | s_genetic_counsel | Genetic counseling | Partner (mock provider) | `t_fh`, `t_metabolic_panel` |
 | s_medspa | Med spa consultation (body contouring, skin tightening) | Referral to Essence | §12 branch only |
 | s_medical_weight | Medical weight management consult | Essence | BMI ≥ 30, or ≥ 27 with a risk factor, and the user wants weight loss |
@@ -365,6 +367,7 @@ services** per summary.
 | Code | Finding | Primary recommendation | Additional service |
 |---|---|---|---|
 | r_excess | intake_likely_above | s_dna_coaching (nutrition coaching) | s_fitness if activity is inactive or low |
+| r_diet_improve | diet class needs_improvement (after the more specific rules) | s_dna_coaching | — |
 | r_low_protein_strength | low_protein + category D/E | Protein review | s_sports_nutrition |
 | r_strength_recovery | category D/E, nutrition not answered (brief §A example) | Recovery nutrition | s_sports_nutrition |
 | r_low_fiber_constip | low_plants + constipation | Fiber review | s_gut_eval if it persists |
@@ -373,7 +376,7 @@ services** per summary.
 | r_inactive | activity inactive or low | Gradual activity plan | s_fitness |
 | r_cardio_only | category C, no strength | Add resistance training | s_fitness |
 | r_glp1_ok | glp1 = effective | Keep the provider's plan | s_glp1_program |
-| r_glp1_side | glp1 = side_effects | Follow up with the prescribing clinician | s_dietitian |
+| r_glp1_side | glp1 = side_effects | Follow up with the prescribing clinician (routine handoff) | s_dietitian |
 | r_multi | ≥ 2 diet flags + inactive or low | Joint nutrition + fitness plan | s_dna_coaching |
 | r_restrictive | restrictive / very_low / binge_like | s_dietitian | No weight-loss services |
 | r_none | No info | General guidance | Optional assessment |
