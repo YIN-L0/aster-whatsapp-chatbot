@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import journeys
+from app.config import get_settings
 from app.models import (
     AgentRun, Appointment, Checkin, Handoff, JournalEntry, Message, SymptomObservation, User, utcnow,
 )
@@ -60,8 +61,10 @@ async def render(db: AsyncSession, key: str) -> str:
                         for h in handoffs)
         runs = list(await db.scalars(select(AgentRun).where(AgentRun.user_id == u.id)
                                      .order_by(AgentRun.created_at.desc()).limit(8)))
+        main_llm = get_settings().llm_provider
         rhtml = "".join(
-            f"<tr><td>{_t(r.created_at, tz)}</td><td>{r.kind}</td><td><span class='pill {RISK[r.risk_final][1]}'>"
+            f"<tr><td>{_t(r.created_at, tz)}</td><td>{r.kind}"
+            f"{' · <b>' + escape(r.provider) + ' (backup)</b>' if r.provider and r.provider != main_llm else ''}</td><td><span class='pill {RISK[r.risk_final][1]}'>"
             f"{RISK[r.risk_final][0]}</span></td><td>{escape(', '.join(t['tool'] for t in (r.tool_calls or [])))}</td>"
             f"<td>{_secs(r.reply_ms)}</td><td>{_secs(r.latency_ms)}</td>"
             f"<td>{escape(', '.join(r.postcheck_violations or []))}</td></tr>" for r in runs
