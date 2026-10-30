@@ -15,7 +15,7 @@ from app import booking, journeys, knowledge
 from app.channels import Button, is_web_user
 from app.config import get_settings
 from app.handoff import create_handoff
-from app.llm import LLMProvider, ToolSpec, get_provider
+from app.llm import LLMProvider, ToolSpec, get_backup_provider, get_provider
 from app.models import AgentRun, Appointment, Checkin, Journey, User
 
 log = logging.getLogger(__name__)
@@ -518,49 +518,76 @@ class AgentResult:
     error: str | None = None
 
 
+class LLMCallFailed(Exception):
+    """The LLM API call itself failed (no credit, bad key, outage, timeout) – not the model's answer."""
+
+
+async def _agent_loop(st: TurnState, provider: LLMProvider, history: list[dict], final_user_content: str,
+                      tools: list[ToolSpec]) -> str:
+    """Model ↔ tools until the model gives its final answer; returns that answer's JSON text."""
+    conv = provider.start(SYSTEM_PROMPT, history + [{"role": "user", "content": final_user_content}])
+    run = st.agent_run
+    run.provider, run.model = provider.name, provider.model
+    for _ in range(MAX_TOOL_STEPS + 1):
+        try:
+            step = await provider.step(conv, tools, OUTPUT_SCHEMA)
+        except Exception as exc:
+            raise LLMCallFailed(f"{provider.name}: {exc}") from exc
+        run.input_tokens += step.input_tokens
+        run.output_tokens += step.output_tokens
+        run.latency_ms += step.latency_ms
+        if step.stop_reason != "tool_use":
+            if step.stop_reason == "refusal":
+                raise RuntimeError("model_refusal")
+            return step.text
+        results = []
+        for call in step.tool_calls:
+            try:
+                out = await _exec_tool(st, call.name, call.input)
+                is_err = "error" in out
+            except Exception as exc:  # tool bugs must not reach the patient
+                log.exception("tool %s failed", call.name)
+                out, is_err = {"error": "tool_failed", "detail": str(exc)[:200]}, True
+            st.tool_log.append({"tool": call.name, "input": call.input, "output": out})
+            results.append((call.id, json.dumps(out, default=str), is_err))
+        provider.add_tool_results(conv, results)
+    raise RuntimeError("too_many_tool_steps")
+
+
 async def run_agent(
     st: TurnState, history: list[dict], final_user_content: str, *, kind: str = "main",
     provider: LLMProvider | None = None, allow_tools: bool | set[str] = True,
 ) -> AgentResult:
+    backup = None if provider else get_backup_provider()
     provider = provider or get_provider()
-    conv = provider.start(SYSTEM_PROMPT, history + [{"role": "user", "content": final_user_content}])
     run = st.agent_run
-    run.kind, run.provider, run.model, run.prompt_version = kind, provider.name, provider.model, PROMPT_VERSION
+    run.kind, run.prompt_version = kind, PROMPT_VERSION
     # allow_tools: True = all tools, False = none, or a set of tool names.
     tools = [t for t in TOOLS if t.name in allow_tools] if isinstance(allow_tools, set) else (TOOLS if allow_tools else [])
     try:
-        for _ in range(MAX_TOOL_STEPS + 1):
-            step = await provider.step(conv, tools, OUTPUT_SCHEMA)
-            run.input_tokens += step.input_tokens
-            run.output_tokens += step.output_tokens
-            run.latency_ms += step.latency_ms
-            if step.stop_reason == "tool_use":
-                results = []
-                for call in step.tool_calls:
-                    try:
-                        out = await _exec_tool(st, call.name, call.input)
-                        is_err = "error" in out
-                    except Exception as exc:  # tool bugs must not reach the patient
-                        log.exception("tool %s failed", call.name)
-                        out, is_err = {"error": "tool_failed", "detail": str(exc)[:200]}, True
-                    st.tool_log.append({"tool": call.name, "input": call.input, "output": out})
-                    results.append((call.id, json.dumps(out, default=str), is_err))
-                provider.add_tool_results(conv, results)
-                continue
-            if step.stop_reason == "refusal":
-                raise RuntimeError("model_refusal")
-            data = json.loads(step.text)
-            msgs = [m.strip() for m in data.get("messages", []) if m and m.strip()][:3]
-            if not msgs:
-                raise RuntimeError("empty_reply")
-            return AgentResult(
-                messages=msgs,
-                risk_level=int(data.get("risk_level", 0)),
-                risk_reason=data.get("risk_reason", ""),
-                intents=data.get("intents", []),
-                state=st,
-            )
-        raise RuntimeError("too_many_tool_steps")
+        try:
+            text = await _agent_loop(st, provider, history, final_user_content, tools)
+        except LLMCallFailed as exc:
+            # Main provider unreachable (e.g. out of credit): answer with the backup instead of "sorry". Only before any
+            # tool has run, so nothing (like a booking) is ever done twice.
+            if backup is None or st.tool_log:
+                raise
+            log.error("LLM call failed, falling back to %s: %s", backup.name, exc)
+            try:
+                text = await _agent_loop(st, backup, history, final_user_content, tools)
+            except LLMCallFailed as exc2:
+                raise LLMCallFailed(f"{exc}; {exc2}") from exc2
+        data = json.loads(text)
+        msgs = [m.strip() for m in data.get("messages", []) if m and m.strip()][:3]
+        if not msgs:
+            raise RuntimeError("empty_reply")
+        return AgentResult(
+            messages=msgs,
+            risk_level=int(data.get("risk_level", 0)),
+            risk_reason=data.get("risk_reason", ""),
+            intents=data.get("intents", []),
+            state=st,
+        )
     except Exception as exc:
         log.exception("agent run failed")
         run.error = str(exc)[:500]
