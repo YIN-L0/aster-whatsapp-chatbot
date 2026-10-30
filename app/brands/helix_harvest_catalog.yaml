@@ -1,0 +1,75 @@
+# FICTIONAL DEMO BRAND – Helix & Harvest is made up. Prices modelled on a public catalog (2026-10-29), demo only.
+# See docs/DEMO_CLIENT_HELIX_HARVEST.md.
+# kind: book (appointment) · buy (one-time, fake checkout link) · subscribe (recurring, fake link) · info
+# recommend: assess (the assessment may recommend it) · ask (only when the user asks – supplements and products)
+# serves: generic service codes from app/assessment_rules/weight_gut.yaml; the first `assess` product wins
+brand: helix_harvest
+checkout_url: "https://shop.helixharvest.example/checkout?item={code}&ref={ref}"
+products:
+  # Tests and reports
+  - {code: hh_dna_kit, name: DNA Nutrition Report + Test Kit, price: "$179", kind: buy, recommend: assess, serves: [s_dna_test],
+     about: "At-home DNA kit and core report: nutrient targets, food scores and food-response insights."}
+  - {code: hh_dna_upload, name: DNA Nutrition Report from existing data, price: "$129", kind: buy, recommend: assess, serves: [s_dna_upload],
+     about: "The core report built from an existing ancestry-test DNA file."}
+  - {code: hh_rpt_weight, name: Healthy Weight Insights Report, price: "$69", kind: buy, recommend: assess, serves: [],
+     about: "Add-on report on genetic traits linked to weight and appetite."}
+  - {code: hh_rpt_glucose, name: Blood Glucose Insights Report, price: "$49", kind: buy, recommend: assess, serves: [],
+     about: "Add-on report on traits linked to blood sugar response."}
+  - {code: hh_rpt_heart, name: Heart Smart Nutrition Report, price: "$49", kind: buy, recommend: assess, serves: [],
+     about: "Add-on report on traits linked to cholesterol and heart-healthy eating."}
+  - {code: hh_rpt_sensitivity, name: Sensitivity & Metabolism Report, price: "$39", kind: buy, recommend: assess, serves: [],
+     about: "Add-on report on gluten, lactose, caffeine and alcohol response traits."}
+  - {code: hh_rpt_eating, name: Eating Insights Report (app only), price: "$29.95", kind: buy, recommend: ask, serves: [],
+     about: "Cravings, snacking and meal-timing tendencies."}
+  - {code: hh_rpt_stress, name: Stress Insights Report (app only), price: "$19.95", kind: buy, recommend: ask, serves: [],
+     about: "Stress and sleep-related traits."}
+  - {code: hh_rpt_supplement, name: Personalized Supplement Report, price: "$29", kind: buy, recommend: ask, serves: [],
+     about: "Which nutrients the DNA report suggests paying attention to."}
+  # Coaching, programs, memberships
+  - {code: hh_coach_review, name: DNA results review with a coach (30 min), price: "$39.95", kind: book, recommend: assess, serves: [s_dietitian],
+     about: "One 1:1 video session with a registered dietitian to go through your results."}
+  - {code: hh_coach_membership, name: Nutrition Coaching Membership, price: "$99/month", kind: subscribe, recommend: assess, serves: [s_dna_coaching, s_dietitian],
+     about: "Bi-weekly 1:1 sessions with a registered dietitian, 5-day meal plans, progress tracking and 20% off products."}
+  - {code: hh_kit_coaching, name: DNA Kit + Coaching Membership, price: "$149 kit + $99/month", kind: subscribe, recommend: assess, serves: [],
+     about: "The DNA kit and the coaching membership together."}
+  - {code: hh_upload_coaching, name: Existing DNA data + Coaching Membership, price: "$99 + $99/month", kind: subscribe, recommend: assess, serves: [],
+     about: "Upload your DNA file and get coaching."}
+  - {code: hh_coach_premium, name: Health Coaching Membership (Premium), price: "$99/month", kind: subscribe, recommend: assess, serves: [],
+     about: "Lifestyle and nutrition strategy, including moving on or off GLP-1 medication."}
+  - {code: hh_maintenance, name: Maintenance Coaching Membership, price: "$299", kind: subscribe, recommend: ask, serves: [],
+     about: "Periodic dietitian check-ins after a core program."}
+  - {code: hh_dna_blood, name: DNA + Blood Nutrition Program, price: "$99/month", kind: subscribe, recommend: assess, serves: [s_labs],
+     about: "DNA analysis, 2 blood nutrient panels, coaching and 3 months of vitamins."}
+  - {code: hh_glp1_program, name: Steady on GLP-1 Program (4 months), price: "$129", kind: subscribe, recommend: assess, serves: [s_glp1_program],
+     about: "Support while on or starting GLP-1 medication: protein, digestion, muscle and habits, with coaching."}
+  - {code: hh_programs, name: "Goal programs: weight loss, menopause, healthy aging", price: "included in coaching", kind: info, recommend: assess, serves: [s_programs],
+     about: "Your coach picks the program that fits your goal."}
+  # Vitamins and nutrition products – described and sold on request only, never with doses
+  - {code: hh_vit_1m, name: HelixVit personalized vitamin (1 month), price: "$84", kind: subscribe, recommend: ask, serves: [], about: "A personalized multivitamin based on your DNA results."}
+  - {code: hh_vit_3m, name: HelixVit personalized vitamin (3-month supply), price: "$237 ($258–$300 with boosters)", kind: buy, recommend: ask, serves: [], about: "Three months of the personalized vitamin."}
+  - {code: hh_vit_6m, name: HelixVit personalized vitamin (6-month supply), price: "$408 ($438–$516 with boosters)", kind: buy, recommend: ask, serves: [], about: "Six months of the personalized vitamin."}
+  - {code: hh_vit_kit, name: HelixVit + DNA kit bundle, price: "$349", kind: buy, recommend: ask, serves: [], about: "The DNA kit and the personalized vitamin together."}
+  - {code: hh_blend, name: HelixBlend personalized fiber & protein powder, price: "$76", kind: buy, recommend: ask, serves: [], about: "A fiber and protein powder matched to your report."}
+  - {code: hh_glp1_protein, name: GLP-1 plant protein powder, price: "$39.95", kind: buy, recommend: ask, serves: [], about: "Plant-based protein powder."}
+  - {code: hh_glp1_multi, name: GLP-1 daily multivitamin, price: "$24.95", kind: buy, recommend: ask, serves: [], about: "A daily multivitamin."}
+  - {code: hh_glp1_probiotic, name: GLP-1 probiotic, price: "$19.95", kind: buy, recommend: ask, serves: [], about: "A probiotic supplement."}
+  - {code: hh_whey, name: Whey protein isolate (vanilla or chocolate), price: "$49.95", kind: buy, recommend: ask, serves: [], about: "Whey protein isolate."}
+  - {code: hh_multi_gummies, name: Multivitamin gummies, price: "$16.95", kind: buy, recommend: ask, serves: [], about: "Multivitamin gummies."}
+  - {code: hh_greens, name: Greens powder, price: "$35.95", kind: buy, recommend: ask, serves: [], about: "A greens powder."}
+  - {code: hh_reds, name: Reds powder, price: "$29.95", kind: buy, recommend: ask, serves: [], about: "A reds (berry and fruit) powder."}
+  - {code: hh_vitd, name: Vitamin D3, price: "$19.95", kind: buy, recommend: ask, serves: [], about: "Vitamin D3."}
+  - {code: hh_magnesium, name: Magnesium glycinate, price: "$26.95", kind: buy, recommend: ask, serves: [], about: "Magnesium glycinate."}
+  - {code: hh_gut_probiotic, name: Gut balance probiotic + prebiotic, price: "$29.95", kind: buy, recommend: ask, serves: [], about: "A probiotic and prebiotic blend."}
+  - {code: hh_other_supp, name: "Specialty supplements (berberine, CoQ10, resveratrol, bone & heart support)", price: "$19.95–$29.95", kind: buy, recommend: ask, serves: [], about: "Single-ingredient supplements."}
+  - {code: hh_meals, name: Personalized prepared meal, price: "$12.50 each", kind: buy, recommend: ask, serves: [], about: "Prepared meals built around your report."}
+  - {code: hh_giftcard, name: Gift card, price: "$25–$175", kind: buy, recommend: ask, serves: [], about: "Delivered by email."}
+  # Partner services (mock providers in the demo)
+  - {code: pt_fitness, name: Fitness coaching (partner), price: "from $60/session", kind: book, recommend: assess, serves: [s_fitness], about: "Strength, cardio and mobility coaching."}
+  - {code: pt_sports_nutrition, name: Sports nutrition coaching (partner), price: "from $80/session", kind: book, recommend: assess, serves: [s_sports_nutrition], about: "Nutrition for training and recovery."}
+  - {code: pt_gut_eval, name: Gut health evaluation (partner clinician), price: "insurance or self-pay", kind: book, recommend: assess, serves: [s_gut_eval], about: "A clinician visit for digestive symptoms."}
+  - {code: pt_labs, name: Lab tests (partner lab), price: "varies", kind: book, recommend: assess, serves: [s_labs], about: "Blood tests such as HbA1c, lipids or celiac serology."}
+  - {code: pt_genetic_counsel, name: Genetic counseling (partner), price: "insurance or self-pay", kind: book, recommend: assess, serves: [s_genetic_counsel], about: "Talk through inherited-risk testing with a genetic counselor."}
+# Referrals to the other demo brand – contact details only, no data shared
+referrals:
+  s_medspa: {brand: essence, text: "Essence Aesthetics & Wellness offers body contouring and skin-tightening consultations: (317) 555-0142, https://www.essence-wellness.example/book"}
+  s_medical_weight: {brand: essence, text: "Essence Aesthetics & Wellness has a medically managed weight program (consultation first): (317) 555-0142, https://www.essence-wellness.example/book"}

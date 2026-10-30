@@ -214,7 +214,7 @@ Self-reported intake is usually **under-reported**, often by 10–30% or more. S
 | Code | Rule | What the bot says |
 |---|---|---|
 | intake_likely_above | estimate > need × 1.15, **or** ≥ 2 high-energy flags (§5.4) | "This suggests you may be eating more than your body needs" |
-| intake_about_right | within ± 15% and no high-energy flags | "Your intake sounds roughly in line with your needs" |
+| intake_about_right | within ± 15% and fewer than 2 high-energy flags (a single flag still shows up as its own finding) | "Your intake sounds roughly in line with your needs" |
 | intake_likely_below | estimate < need × 0.7, or skipping meals with fatigue | "You may not be eating enough to fuel your day" |
 | intake_unclear | not enough detail | Ask about portions or typical foods once, if the user agrees |
 
@@ -366,8 +366,9 @@ services** per summary.
 |---|---|---|---|
 | r_excess | intake_likely_above | s_dna_coaching (nutrition coaching) | s_fitness if activity is inactive or low |
 | r_low_protein_strength | low_protein + category D/E | Protein review | s_sports_nutrition |
+| r_strength_recovery | category D/E, nutrition not answered (brief §A example) | Recovery nutrition | s_sports_nutrition |
 | r_low_fiber_constip | low_plants + constipation | Fiber review | s_gut_eval if it persists |
-| r_bloating | bloat_frequent | s_gut_eval | s_dna_coaching afterwards |
+| r_bloating | any persistent gut row (§8) | s_gut_eval — symptom tests (celiac, lactose, calprotectin) are arranged inside this evaluation | s_dna_coaching afterwards |
 | r_inherited | fh_* or t_fh / t_metabolic_panel | Clinical screening (s_labs) | s_genetic_counsel if indicated |
 | r_inactive | activity inactive or low | Gradual activity plan | s_fitness |
 | r_cardio_only | category C, no strength | Add resistance training | s_fitness |
@@ -391,7 +392,7 @@ Partial information (brief §A–G), summarized:
 
 ## 12. Med spa branch (brief §"Med spa specific")
 
-Trigger: `goal = body_shape` **and** BMI < 25 (gym attendance doesn't matter). Recommend only a **consultation**,
+Trigger: `goal = body_shape` **and** BMI 18.5–24.9 (gym attendance doesn't matter; underweight users get the nutrition route instead). Recommend only a **consultation**,
 never a specific treatment.
 
 | User | Aster action |

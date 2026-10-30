@@ -1,0 +1,234 @@
+# DRAFT FOR DEMO ONLY – pending clinical review and sign-off. Not medical advice.
+# Source of truth for the wording and evidence: docs/WEIGHT_GUT_ASSESSMENT.md (section numbers in comments).
+version: weight_gut@draft-1
+
+# §2 BMI – rows in order; a BMI belongs to the first row whose `below` it is under (no `below` = open-ended).
+bmi:
+  - {code: bmi_severe_under, below: 16.0, label: Severely underweight, interpretation: significantly below the healthy range}
+  - {code: bmi_under, below: 18.5, label: Underweight, interpretation: below the healthy range}
+  - {code: bmi_healthy, below: 25.0, label: Healthy weight, interpretation: within the standard healthy range}
+  - {code: bmi_over_low, below: 27.5, label: Slightly overweight, interpretation: in the lower part of the overweight range}
+  - {code: bmi_over_high, below: 30.0, label: Overweight, interpretation: in the upper part of the overweight range}
+  - {code: bmi_ob1, below: 35.0, label: Obesity class I, interpretation: in the obesity range}
+  - {code: bmi_ob2, below: 40.0, label: Obesity class II, interpretation: in the severe obesity range}
+  - {code: bmi_ob3, label: Obesity class III, interpretation: in the severe obesity range}
+
+# §3 Daily energy needs
+energy:
+  activity_factors: {inactive: 1.2, low: 1.375, meets_guideline: 1.55, high: 1.725}
+  min_kcal: {female: 1200, male: 1500}
+  deficit_kcal: [300, 500]
+  # DGA 2020–2025 Appendix 2 – used when height or weight is missing. sedentary = inactive/low, active = the rest.
+  dga_fallback:
+    - {min_age: 0, max_age: 60, female: {sedentary: [1600, 2000], active: [2200, 2400]}, male: {sedentary: [2200, 2600], active: [2600, 3000]}}
+    - {min_age: 61, max_age: 200, female: {sedentary: [1600, 1600], active: [2000, 2000]}, male: {sedentary: [2000, 2000], active: [2400, 2600]}}
+
+# §4 Exercise – METs from the 2024 Adult Compendium. category: B light · C cardio · D strength · E both · F sports/other
+exercise:
+  moderate_met: 3.0
+  vigorous_met: 6.0
+  other_intensity_met: {light: 2.5, moderate: 4.5, vigorous: 7.0}
+  activities:
+    walk_slow: {label: "Walking, slow (2.5 mph)", met: 3.0, category: B}
+    walk_moderate: {label: "Walking, moderate pace", met: 3.8, category: B}
+    walk_brisk: {label: "Brisk walking for exercise", met: 4.8, category: C}
+    yoga_hatha: {label: "Yoga, hatha / general", met: 2.3, category: B}
+    yoga_power: {label: "Yoga, power", met: 4.0, category: B}
+    yoga_vinyasa: {label: "Yoga, vinyasa", met: 2.7, category: B}
+    pilates: {label: Pilates, met: 2.8, category: F}
+    stretching: {label: Stretching, met: 2.3, category: B}
+    gardening: {label: "Gardening, moderate", met: 3.8, category: B}
+    cycle_leisure: {label: "Cycling, leisure", met: 6.8, category: C}
+    cycle_moderate: {label: "Cycling, moderate (12–14 mph)", met: 8.0, category: C}
+    cycle_stationary: {label: "Stationary bike", met: 6.8, category: C}
+    jog: {label: Jogging, met: 7.5, category: C}
+    run_5: {label: "Running, 5 mph", met: 8.5, category: C}
+    run_6: {label: "Running, 6 mph", met: 9.3, category: C}
+    run_7: {label: "Running, 7 mph", met: 11.0, category: C}
+    swim_slow: {label: "Swimming laps, easy", met: 5.8, category: C}
+    swim_fast: {label: "Swimming laps, fast", met: 9.8, category: C}
+    elliptical: {label: Elliptical, met: 5.0, category: C}
+    rowing: {label: "Rowing machine", met: 5.0, category: C}
+    hiit: {label: "HIIT, moderate", met: 7.0, category: C}
+    hiit_vig: {label: "HIIT, vigorous", met: 11.0, category: C}
+    zumba: {label: "Zumba / dance class", met: 6.5, category: C}
+    weights: {label: "Weight training", met: 3.5, category: D}
+    weights_heavy: {label: "Heavy lifts (squats, deadlifts)", met: 5.0, category: D}
+    weights_vig: {label: "Bodybuilding / power lifting", met: 6.0, category: D}
+    bodyweight: {label: "Body-weight exercises", met: 3.0, category: D}
+    circuit: {label: "Circuit training", met: 5.0, category: E}
+    circuit_vig: {label: "Circuit / kettlebell, vigorous", met: 7.5, category: E}
+    tennis_doubles: {label: "Tennis, doubles", met: 6.0, category: F}
+    tennis_singles: {label: "Tennis, singles", met: 8.0, category: F}
+    basketball: {label: "Basketball game", met: 8.0, category: F}
+    soccer: {label: "Soccer, casual", met: 7.0, category: F}
+    hiking: {label: Hiking, met: 6.0, category: F}
+    golf: {label: "Golf, walking", met: 4.5, category: F}
+    other: {label: "Other activity", met: null, category: F}
+  # weekly moderate-equivalent minutes; first row whose `below` the total is under
+  levels:
+    - {code: inactive, below: 30, label: "below the activity guideline"}
+    - {code: low, below: 150, label: "some activity, below the 150-minute guideline"}
+    - {code: meets_guideline, below: 301, label: "meeting the 150–300 minute guideline"}
+    - {code: high, label: "above the guideline – extra health benefit"}
+  categories:
+    A: {label: No regular exercise, burn: very low, muscle: very low, next_step: "Start with 10-minute walks and build toward 150 minutes a week."}
+    B: {label: Light activity, burn: low–moderate, muscle: low, next_step: "Add a little intensity or time, plus 2 days of strength work."}
+    C: {label: Cardio-focused, burn: moderate–high, muscle: low–moderate, next_step: "Add 2 strength days a week to protect muscle."}
+    D: {label: Strength-focused, burn: moderate, muscle: high, next_step: "If weight loss is the goal, add some aerobic minutes."}
+    E: {label: Balanced cardio + strength, burn: moderate–high, muscle: high, next_step: "Keep it up – check protein and recovery."}
+    F: {label: Sports / other activities, burn: varies, muscle: varies, next_step: "Check your weekly minutes and intensity."}
+
+# §5 Diet
+diet:
+  targets:
+    - "Protein: 0.8 g/kg/day in general; 1.2–1.6 g/kg/day during weight loss; 1.4–2.0 g/kg/day for regular exercisers"
+    - "Fiber: about 14 g per 1,000 kcal (≈25 g women, 31–38 g men)"
+    - "Added sugars under 10% of calories; saturated fat under 10%; sodium under 2,300 mg"
+    - "About 2.5 cups of vegetables and 2 cups of fruit a day (at 2,000 kcal)"
+    - "Alcohol, if any: up to 1 drink a day (women) or 2 (men)"
+  # §5.2 – shown to the LLM only while it reads the user's meals; never quoted as exact numbers
+  quick_estimates:
+    - "Regular soda / sweet tea 12 oz: 150 kcal (~39 g sugar)"
+    - "Sweetened latte / frappé 16 oz: 250–400"
+    - "Juice 8 oz: 110 · Beer 12 oz: 150 · Wine 5 oz: 120"
+    - "Fast-food burger + fries + soda: 1,100–1,300"
+    - "Pizza slice: 285 · Restaurant pasta plate: 800–1,200 · Burrito or bowl: 700–1,100"
+    - "Sandwich / sub: 400–800 · Salad with dressing and protein: 350–600"
+    - "Rice or pasta 1 cup cooked: 200 · Bread slice: 80"
+    - "Chicken or fish, palm size: 150–200 (~30 g protein) · Steak 6 oz: 400"
+    - "2 eggs: 140 · Greek yogurt 1 cup: 130 · Oatmeal 1 cup: 160 · Cereal with milk: 250–350"
+    - "Pastry / donut / muffin: 250–450 · Chips 1 oz: 150 · Nuts, handful: 170 · Chocolate bar: 220–250"
+    - "Apple or banana: 95–105 · Protein shake: 150–250"
+  intake:
+    above_ratio: 1.15
+    below_ratio: 0.7
+    high_energy_flags: [sugary_drinks, large_portions, frequent_alcohol, late_night]
+    bands:
+      intake_likely_above: "This suggests you may be eating more than your body needs."
+      intake_about_right: "Your intake sounds roughly in line with what your body needs."
+      intake_likely_below: "You may not be eating enough to fuel your day."
+      intake_unclear: "I'd need a little more detail about portions or typical foods to say more."
+  # §5.4
+  flags:
+    sugary_drinks: {trigger: "at least one sugary drink a day", issue: extra added sugar and energy, recommendation: "Swap some for water, sparkling water or unsweetened drinks.", service: s_dna_coaching}
+    large_portions: {trigger: "restaurant / fast food 3+ times a week, or big plates", issue: possible excess energy, recommendation: "Review portions – try a half-plate of vegetables.", service: s_dietitian}
+    low_plants: {trigger: "fewer than 2 servings of fruit or vegetables a day", issue: low fiber and micronutrients, recommendation: "Add one fruit or vegetable to each meal, gradually.", service: s_dna_coaching}
+    low_protein: {trigger: "protein in fewer than 2 meals", issue: possibly low protein, recommendation: "Include a palm-size protein portion at each meal.", service: s_dietitian}
+    meal_skipping_fatigue: {trigger: "skips meals and feels tired", issue: possibly not eating enough, recommendation: "Review total intake and how you feel.", service: s_dietitian}
+    restrictive: {trigger: "cuts whole food groups or eats very little", issue: risk of nutrient gaps, recommendation: "Check the diet covers your needs before cutting anything more.", service: s_dietitian}
+    limited_variety: {trigger: "the same few foods every day", issue: possible nutrient gaps, recommendation: "Add variety gradually.", service: s_dna_coaching}
+    frequent_alcohol: {trigger: "more than the guideline amounts", issue: extra energy; affects sleep and liver, recommendation: "Cut back and add alcohol-free days.", service: s_dna_coaching}
+    late_night: {trigger: "most food after 8 pm or night snacking", issue: often extra energy; poorer sleep, recommendation: "Shift more of your food to breakfast and lunch.", service: s_dna_coaching}
+    balanced: {trigger: "varied meals with protein and plants at most meals", issue: no obvious issue, recommendation: "Keep your sustainable habits.", service: null}
+    insufficient_detail: {trigger: "too vague to judge", issue: can't evaluate, recommendation: "Share a typical day's meals if you'd like a closer look.", service: null}
+  classes:
+    healthy_balanced: "Healthy / balanced"
+    needs_improvement: "Needs improvement"
+    potentially_unhealthy: "Potentially unhealthy – worth a professional look"
+
+# §6 Diet plans
+diet_plans:
+  keto: {label: Ketogenic, grade: B, gaps: "low fiber; low fruit and whole grains; LDL can rise", tip: "Choose non-starchy vegetables and unsaturated fats; ask your clinician about a lipid check."}
+  low_carb: {label: Low-carb, grade: B, gaps: "low fiber if vegetables are low", tip: "Keep vegetables, legumes and nuts."}
+  low_fat: {label: Low-fat, grade: B, gaps: "\"low-fat\" products can be high in sugar", tip: "Watch added sugar."}
+  intermittent_fasting: {label: Intermittent fasting, grade: B, gaps: "low protein if the eating window is short; overeating in the window", tip: "Make the first meal protein-rich."}
+  mediterranean: {label: Mediterranean, grade: A, gaps: "oils and nuts are calorie-dense", tip: "Mind portions."}
+  dash: {label: DASH, grade: A, gaps: "few", tip: "A good default pattern."}
+  vegetarian: {label: Vegetarian, grade: B, gaps: "iron, B12, omega-3", tip: "A clinician can check B12 and iron if symptoms appear."}
+  vegan: {label: Vegan / plant-based, grade: B, gaps: "B12, iron, calcium, vitamin D, iodine, omega-3, protein", tip: "Make sure you have a reliable B12 source; a dietitian review can help."}
+  high_protein: {label: High-protein, grade: B, gaps: "low fiber if plants are low", tip: "Pair protein with plants."}
+  meal_replacement: {label: Meal replacements, grade: A, gaps: "hard to sustain; low variety", tip: "Plan the move back to regular meals."}
+  commercial_program: {label: Commercial program / app, grade: B, gaps: "depends on the program", tip: "Keep what works for you."}
+  carnivore: {label: Carnivore, grade: C, gaps: "no fiber, vitamin C or plant nutrients; high saturated fat", tip: "A dietitian review is a good idea."}
+  cleanse: {label: Juice or detox cleanse, grade: X, gaps: "very low protein; weight usually comes back", tip: "A steady, sustainable plan works better."}
+  glp1: {label: GLP-1 medication, grade: A, gaps: "muscle loss; low protein and fluids; micronutrient gaps", tip: "Protein at each meal, strength training and fluids help – side effects go to your prescribing clinician."}
+  none: {label: No specific plan, grade: null, gaps: "", tip: ""}
+
+# §7 Eating patterns
+eating_patterns:
+  regular: {label: Regular meals, suggestion: "Keep it up.", service: null}
+  skip_breakfast: {label: Skips breakfast, suggestion: "If you get very hungry later, try a protein breakfast.", service: null}
+  irregular: {label: Irregular meal times, suggestion: "Set rough meal times.", service: s_dna_coaching}
+  grazing: {label: Frequent snacking, suggestion: "Plan your snacks.", service: s_dna_coaching}
+  late_eating: {label: Large late meals, suggestion: "Shift more food earlier in the day.", service: s_dna_coaching}
+  emotional: {label: Stress or emotional eating, suggestion: "Notice the triggers and try non-food ways to cope.", service: s_dna_coaching}
+  eat_out: {label: Eats out often, suggestion: "Pick lighter options, or share or box half.", service: s_dna_coaching}
+  binge_like: {label: Loss-of-control eating, suggestion: "You're not alone in this – a dietitian or clinician can really help.", service: s_dietitian}
+  very_low: {label: Very little food overall, suggestion: "Let's not cut anything more – a dietitian can check what you need.", service: s_dietitian}
+
+# §8 Gut – any red flag means escalate; no tests or products
+gut:
+  red_flags:
+    blood_in_stool: blood in stool
+    black_stool: black or tarry stool
+    unintentional_weight_loss: unintentional weight loss
+    persistent_vomiting: persistent vomiting
+    severe_abdominal_pain: severe or worsening abdominal pain
+    trouble_swallowing: trouble swallowing
+    fever_with_diarrhea: fever with diarrhea
+    new_bowel_change_45: new bowel changes at 45+ without colon screening
+    nocturnal_diarrhea: diarrhea that wakes you at night
+    iron_deficiency_anaemia: known iron-deficiency anaemia
+  symptoms:
+    gi_none: {label: No digestive symptoms, tests: [], specialist: null, action: "General nutrition guidance.", service: null, persistent: false}
+    bloat_mild: {label: Occasional mild bloating, tests: [], specialist: dietitian if desired, action: "Keep a 2-week food and symptom diary.", service: null, persistent: false}
+    bloat_frequent: {label: Frequent bloating, tests: [t_celiac, t_lactose], specialist: primary care or GI if it persists, action: "Offer an evaluation.", service: s_gut_eval, persistent: true}
+    dairy: {label: Symptoms after dairy, tests: [t_lactose], specialist: primary care or GI if unclear, action: "Explain the options and arrange testing.", service: s_gut_eval, persistent: true}
+    gluten: {label: Symptoms after gluten, tests: [t_celiac], specialist: clinician to interpret, action: "Test before going gluten-free.", service: s_gut_eval, persistent: true}
+    diarrhea_persistent: {label: Diarrhea for more than 4 weeks, tests: [t_calprotectin, t_celiac], specialist: primary care or GI, action: "Clinician assessment first.", service: s_gut_eval, persistent: true}
+    constipation_persistent: {label: Constipation for more than 3 months, tests: [], specialist: primary care or GI if it persists, action: "Review fiber and fluids; keep a symptom diary.", service: s_gut_eval, persistent: true}
+    inflammation: {label: Possible intestinal inflammation, tests: [t_calprotectin], specialist: GI or primary care, action: "Arrange a clinician-directed test.", service: s_gut_eval, persistent: true}
+    reflux: {label: Heartburn twice a week or more, tests: [], specialist: primary care if it persists, action: "Smaller, earlier meals.", service: s_gut_eval, persistent: true}
+    glp1_gi: {label: GI side effects on GLP-1, tests: [], specialist: prescribing clinician, action: "Small frequent meals and fluids; tell your clinician.", service: null, persistent: false}
+  family_history:
+    fh_celiac: {label: Celiac disease in a close relative, tests: [t_celiac]}
+    fh_ibd: {label: IBD in a close relative, tests: [t_calprotectin]}
+    fh_colon_cancer: {label: Colon cancer in a close relative, tests: []}
+    fh_high_cholesterol: {label: Very high cholesterol in the family, tests: [t_fh]}
+    fh_early_heart_disease: {label: Early heart disease in the family, tests: [t_fh]}
+    fh_diabetes: {label: Diabetes in a close relative, tests: [t_hba1c]}
+
+# §9 Tests – grade A first; C/X always come with `limitation`
+tests:
+  t_nutrigenetic: {label: Nutrigenetic DNA test, grade: C, goals: [genetics_nutrition, curiosity], service: s_dna_test,
+                   limitation: "It's optional – evidence that DNA-based diets improve weight loss is limited, and it isn't a diagnostic test."}
+  t_metabolic_panel: {label: Metabolic genetic panel, grade: A, goals: [inherited_risk], needs_history: true, service: s_genetic_counsel, limitation: null}
+  t_fh: {label: Familial hypercholesterolemia genetic test, grade: A, goals: [inherited_risk], needs_history: true, service: s_genetic_counsel, limitation: null}
+  t_microbiome: {label: Gut microbiome test, grade: X, goals: [curiosity, understand_symptoms], service: null,
+                 limitation: "It's exploratory – experts don't recommend it for diagnosing bloating or IBS."}
+  t_lactose: {label: Lactose breath test, grade: A, goals: [understand_symptoms], service: s_labs, limitation: null}
+  t_celiac: {label: Celiac blood test (tTG-IgA + total IgA), grade: A, goals: [understand_symptoms], service: s_labs,
+             limitation: "It's only accurate while you're still eating gluten."}
+  t_calprotectin: {label: Fecal calprotectin, grade: A, goals: [understand_symptoms], service: s_gut_eval, limitation: null}
+  t_nutrients: {label: Targeted nutrient blood tests, grade: A, goals: [understand_symptoms, genetics_nutrition], service: s_labs, limitation: null}
+  t_hba1c: {label: HbA1c (blood sugar) test, grade: A, goals: [inherited_risk, understand_symptoms], service: s_labs, limitation: null}
+  t_lipids: {label: Lipid panel, grade: A, goals: [inherited_risk], service: s_labs, limitation: null}
+  t_food_sensitivity: {label: IgG food sensitivity panel, grade: X, goals: [], service: null,
+                       limitation: "Guidelines don't recommend it – a symptom diary or a dietitian is more useful."}
+
+# §10 Generic services – each brand catalog maps these to its products (`serves`)
+services:
+  s_dna_test: {label: DNA nutrition test, kind: buy}
+  s_dna_coaching: {label: Nutrition coaching, kind: book}
+  s_dna_upload: {label: Report from existing DNA data, kind: buy}
+  s_programs: {label: Goal program, kind: info}
+  s_glp1_program: {label: GLP-1 support program, kind: subscribe}
+  s_dietitian: {label: Registered dietitian session, kind: book}
+  s_fitness: {label: Fitness coaching, kind: book}
+  s_sports_nutrition: {label: Sports nutrition coaching, kind: book}
+  s_gut_eval: {label: Gut health evaluation, kind: book}
+  s_labs: {label: Lab tests, kind: book}
+  s_genetic_counsel: {label: Genetic counseling, kind: book}
+  s_medspa: {label: Med spa consultation (Essence), kind: referral}
+  s_medical_weight: {label: Medical weight management consultation (Essence), kind: referral}
+
+# Approved sentences the reply may use (the LLM rephrases, never adds facts)
+notes:
+  bmi_muscle: "BMI doesn't tell muscle from fat, so with your strength training it may overstate things."
+  bmi_older: "After 65 a BMI a little above 25 isn't a concern by itself."
+  special_population: "Because adult BMI and calorie guides don't fit your situation, I'll keep this general and ask our team to reach out."
+  nutrition_concern: "A dietitian on our team can help you make sure you're getting what you need – I'll ask them to reach out."
+  red_flag: "Some of what you describe should be checked by a clinician soon, so I've let the team know."
+  glp1_side_effects: "Please let your prescribing clinician know about the side effects."
+  no_info: "No problem – you don't need to share personal health information to get started."
