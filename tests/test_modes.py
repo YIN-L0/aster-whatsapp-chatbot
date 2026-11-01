@@ -165,3 +165,15 @@ async def test_no_companion_invite_when_there_is_a_concern(channel):
     ]))
     await handle_inbound(inbound("there's a hard lump that wasn't there yesterday"))
     assert not any(m["type"] == "buttons" and "invite:no" in str(m["buttons"]) for m in channel.sent)
+
+
+async def test_choosing_the_companion_after_a_checkin_is_respected(channel):
+    set_provider(FakeProvider([reply("Hi Emily! How are your lips today?", intents=["checkin"])]))
+    await handle_inbound(inbound("hi"))
+    await handle_inbound(inbound("I Agree", button_id="consent:yes"))
+    await handle_inbound(inbound("#demo filler 2 Emily"))
+    await handle_inbound(inbound("My health goals", button_id="mode:companion"))
+    set_provider(FakeProvider([[{"name": "set_goal", "input": {"goal": "general"}}], reply("Let's talk food.")]))
+    await handle_inbound(inbound("I want to eat better"))
+    assert (await _user()).active_mode == "companion"
+    assert (await _tool_outputs())[0]["status"] == "started"

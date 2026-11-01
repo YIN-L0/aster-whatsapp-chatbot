@@ -71,6 +71,8 @@ class User(TimestampMixin, Base):
     entry_source: Mapped[str | None] = mapped_column(String(32), default="unknown")
     # none | companion | post_treatment – which module the chat is in; progress lives in its own tables
     active_mode: Mapped[str | None] = mapped_column(String(16), default="none")
+    # When the user last picked a mode themselves (menu, buttons, commands) – a check-in sent earlier doesn't override it
+    mode_chosen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Separate from proactive_opt_in (service check-ins). Only ever set by an explicit yes, never by silence.
     marketing_opt_in: Mapped[bool | None] = mapped_column(Boolean, default=False)
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

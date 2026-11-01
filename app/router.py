@@ -5,18 +5,19 @@ row switches active_mode. Switching never touches progress – assessments, plan
 """
 
 import re
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import journeys, memory, outbound, providers
+from app import journeys, memory, outbound, providers, referral
 from app.channels import Button, ListRow
 from app.companion import goal_spec
 from app.config import get_settings
 from app.handoff import create_handoff
-from app.models import Message, Plan, ProviderLink, User
+from app.models import Handoff, Message, Plan, ProviderLink, ReferralOffer, User, utcnow
 
-PREFIXES = ("entry:", "menu:", "mode:", "invite:")
+PREFIXES = ("entry:", "menu:", "mode:", "invite:", "ref:")  # ref:yes is turned into text for the agent first
 MENU_WORDS = {"MENU", "HOME", "SWITCH", "/MENU"}
 SLASH = {"/companion": "mode:companion", "/aftercare": "mode:post_treatment", "/treatment": "mode:post_treatment",
          "/plan": "menu:plan", "/services": "menu:services", "/human": "menu:human", "/privacy": "menu:privacy"}
@@ -142,7 +143,7 @@ async def send_menu(db: AsyncSession, user: User) -> None:
 
 
 async def enter_companion(db: AsyncSession, user: User) -> None:
-    user.active_mode = "companion"
+    user.active_mode, user.mode_chosen_at = "companion", utcnow()
     a = await open_assessment(db, user)
     if a:
         await outbound.send_text(db, user, f"Welcome back to your health companion 🌿 Last time we were working on "
@@ -164,7 +165,7 @@ async def enter_post_treatment(db: AsyncSession, user: User) -> None:
             [Button("entry:essence", "Yes, Essence client"), Button("mode:companion", "No, my health goals")],
         )
         return
-    user.active_mode = "post_treatment"
+    user.active_mode, user.mode_chosen_at = "post_treatment", utcnow()
     await memory.pause_open_assessment(db, user)
     journey = await journeys.get_primary_journey(db, user.id)
     if journey:
@@ -248,9 +249,20 @@ async def handle(db: AsyncSession, user: User, button_id: str | None, text: str)
     elif action == "menu:plan":
         await send_plan(db, user)
     elif action == "menu:services":
+        await referral.log(db, user, referral.ANY_NEED, "accepted", mode=user.active_mode)  # the user asked
         await outbound.send_text(db, user, "Sure. What kind of help are you looking for – for example a dietitian, a "
                                  "fitness coach, or help after a treatment? I'll share some neutral advice first, and "
                                  "options if they fit what you need.", sender="aster_system")
+    elif action.startswith("ref:no:"):
+        offer = await _offer(db, user, action.removeprefix("ref:no:"))
+        if offer:
+            offer.status, offer.decided_at = "declined", utcnow()
+        await outbound.send_text(db, user, "No problem – I'm here whenever you need anything.", sender="aster_system")
+    elif action.startswith("ref:share:"):
+        slug, need = action.removeprefix("ref:share:").split(":", 1)
+        await share_with_provider(db, user, slug, need)
+    elif action == "ref:noshare":
+        await outbound.send_text(db, user, "Okay – nothing was shared.", sender="aster_system")
     elif action == "menu:human":
         await request_person(db, user)
     elif action == "invite:no":
@@ -260,6 +272,42 @@ async def handle(db: AsyncSession, user: User, button_id: str | None, text: str)
                                  sender="aster_system")
     else:
         await send_menu(db, user)
+
+
+async def _offer(db: AsyncSession, user: User, offer_id: str) -> ReferralOffer | None:
+    try:
+        offer = await db.get(ReferralOffer, uuid.UUID(offer_id))
+    except ValueError:
+        return None
+    return offer if offer and offer.user_id == user.id else None
+
+
+async def accept_offer(db: AsyncSession, user: User, offer_id: str) -> str | None:
+    """The user tapped "Yes, show options": returns the need, or None if the offer isn't theirs."""
+    offer = await _offer(db, user, offer_id)
+    if not offer:
+        return None
+    offer.status, offer.decided_at = "accepted", utcnow()
+    return offer.need
+
+
+async def share_with_provider(db: AsyncSession, user: User, slug: str, need: str) -> None:
+    """Sends the provider exactly the summary the user just saw – nothing else (no journey, no chat history).
+    Kept apart from clinical handoffs so it never merges into one."""
+    p = providers.get(slug)
+    if not p:
+        return
+    summary = await referral.share_summary(db, user, need)
+    text = f"📨 Referral from Aster · {'TEST USER' if user.is_test_user else ''}\nTo: {p['name']}\n{summary}\n" \
+           f"Contact: +{user.wa_id}\n(Shared with the user's permission.)"
+    db.add(Handoff(user_id=user.id, reason="referral_share", urgency="routine", status="sent", summary=text,
+                   team=slug, notified=True))
+    await referral.log(db, user, need, "contact_shared", shown=[slug], mode=user.active_mode)
+    await outbound.notify_staff(text)
+    c = p["contact"]
+    how = " · ".join(v for v in (c.get("phone"), c.get("email"), c.get("booking_url") or c.get("website")) if v)
+    await outbound.send_text(db, user, f"Done – I've sent {p['name']} your summary, and they'll get in touch. You can "
+                             f"also reach them directly: {how}", sender="aster_system")
 
 
 COMPANION_INVITE = ("One more thing: besides your recovery, I can also help with your own health goals – nutrition, "

@@ -144,8 +144,18 @@ _BOOKED = re.compile(r"\b(booked|confirmed|scheduled|all set)\b", re.I)
 _NEGATED_CLAIM = re.compile(r"\b(not|can'?t|cannot|won'?t|isn'?t|unable|couldn'?t|no|never)\b", re.I)
 
 
-def postcheck(reply: str, *, booked_this_turn: bool, has_appointment: bool = False) -> list[str]:
+def postcheck(reply: str, *, booked_this_turn: bool, has_appointment: bool = False,
+              allowed_providers: set[str] | None = None) -> list[str]:
+    """allowed_providers: partner slugs the reply may name (None = don't check). Names are matched case-sensitively,
+    so the word "essence" in a sentence is not a mention."""
+    from app import providers
+
     violations = []
+    if allowed_providers is not None:
+        for slug, p in providers.catalog().items():
+            if slug not in allowed_providers and any(n in reply for n in [p["name"], *p.get("aliases", [])]):
+                violations.append("unrequested_provider")
+                break
     if _DOSE.search(reply):
         violations.append("dosing_advice")
     if _DISMISSIVE.search(reply):

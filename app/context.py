@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import json
 
-from app import assessment_engine, booking, companion, journeys, memory
+from app import assessment_engine, booking, companion, journeys, memory, referral
 from app.channels import is_web_user
 from app.config import get_settings
 from app.handoff import open_handoff
@@ -95,6 +95,9 @@ async def build_context_block(
         lines.append("RETURNING: this is their first message after a long break – a short welcome back fits, then "
                      "answer what they wrote.")
     lines.append(await mode_block(db, user, journey, checkin))
+    declined = await referral.declined_needs(db, user)
+    if declined:
+        lines.append(f"REFERRALS: they said no to options for {', '.join(declined)} – don't offer these again")
     handoff = await open_handoff(db, user.id)
     if handoff:
         lines.append(f"OPEN HANDOFF: {handoff.urgency} ({handoff.reason}) – the team has already been alerted")

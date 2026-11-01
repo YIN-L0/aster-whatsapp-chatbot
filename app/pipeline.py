@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, commands, journeys, outbound, providers, router, safety
+from app import booking, commands, journeys, outbound, providers, referral, router, safety
 from app.agent import AgentResult, TurnState, run_agent
 from app.channels import Button, InboundMessage
 from app.config import get_settings
@@ -17,7 +17,7 @@ from app.context import build_context_block, build_history
 from app.db import session_scope
 from app.followups import active_checkin, plan_for_journey
 from app.handoff import URGENCY_FOR_RISK, create_handoff, open_handoff
-from app.models import AgentRun, Checkin, JournalEntry, Message, PendingAction, User, utcnow
+from app.models import AgentRun, Checkin, JournalEntry, Message, PendingAction, ReferralOffer, User, utcnow
 
 log = logging.getLogger(__name__)
 _locks: dict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -135,7 +135,13 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     # A. Button replies are handled deterministically – the LLM never commits journey data.
     button_id = (last.payload or {}).get("button_id")
     if button_id:
-        if button_id.startswith("goal:"):
+        if button_id.startswith("ref:yes:"):
+            # "Yes, show options": the agent shows them (find_services), now that the user accepted
+            need = await router.accept_offer(db, user, button_id.removeprefix("ref:yes:"))
+            last.body = f"Yes, show me some options [accepted options for need={need}]" if need else last.body
+            text = "\n".join(m.body for m in pending if m.body).strip()
+            button_id = None
+        elif button_id.startswith("goal:"):
             # A goal picked from the list: the agent records it (set_goal) and starts the conversation
             last.body = f"My goal: {last.body} [goal={button_id.removeprefix('goal:')}]"
             text = "\n".join(m.body for m in pending if m.body).strip()
@@ -229,12 +235,15 @@ async def _run_main_agent(
     journey = await journeys.get_primary_journey(db, user.id)
     checkin = await active_checkin(db, user)
     if checkin and checkin.kind == "recovery":
-        user.active_mode = "post_treatment"  # they're answering a recovery check-in
+        if user.mode_chosen_at and checkin.sent_at and user.mode_chosen_at > checkin.sent_at:
+            checkin = None  # they picked another topic after the check-in arrived; it stays open for later
+        else:
+            user.active_mode = "post_treatment"  # they're answering a recovery check-in
     run = AgentRun(user_id=user.id, kind="main", provider="", model="", prompt_version="", risk_rule=rule.level)
     db.add(run)
     await db.flush()
     st = TurnState(db=db, user=user, journey=journey, checkin=checkin, agent_run=run,
-                   source_message_ids=[str(m.id) for m in pending])
+                   source_message_ids=[str(m.id) for m in pending], user_text=text)
 
     history = await build_history(db, user, exclude_ids={m.id for m in pending})
     ctx = await build_context_block(db, user, journey, checkin, rule.negated_hits, returning)
@@ -255,7 +264,9 @@ async def _run_main_agent(
 
     # Post-check, one regeneration with feedback, then a conservative fallback.
     has_appt = bool(await booking.upcoming_appointments(db, user.id))
-    violations = safety.postcheck("\n".join(result.messages), booked_this_turn=st.booked, has_appointment=has_appt)
+    allowed = await _allowed_providers(db, user, st)
+    violations = safety.postcheck("\n".join(result.messages), booked_this_turn=st.booked, has_appointment=has_appt,
+                                  allowed_providers=allowed)
     if violations:
         log.warning("postcheck violations=%s", violations)
         retry_history = history + [
@@ -266,7 +277,7 @@ async def _run_main_agent(
                "Rewrite it so it follows the safety rules. Do not mention this feedback.</system_feedback>")
         retry = await run_agent(st, retry_history, fix, allow_tools=False)
         if retry.error or safety.postcheck("\n".join(retry.messages), booked_this_turn=st.booked,
-                                          has_appointment=has_appt):
+                                          has_appointment=has_appt, allowed_providers=allowed):
             result.messages = [safety.fallback_reply(team)]
             violations.append("fallback_used")
             # FALLBACK_REPLY says the team will follow up, so make sure someone is asked to.
@@ -307,6 +318,12 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
             run.reply_ms = int((utcnow() - received_at).total_seconds() * 1000)
             log.info("reply sent in %.1fs (llm %.1fs, tools=%s) user=%s", run.reply_ms / 1000, run.latency_ms / 1000,
                      ",".join(t["tool"] for t in (run.tool_calls or [])) or "-", user.id)
+    # Partnership disclosure for every partner named next to options – added by code, not left to the model
+    said = "\n".join(result.messages).lower()
+    for slug in dict.fromkeys(st.shown_providers):
+        p = providers.get(slug)
+        if any(n.lower() in said for n in [p["name"], *p.get("aliases", [])]):
+            await outbound.send_text(db, user, f"ℹ️ {p['relationship']['disclosure']}", sender="aster_system")
     for text in st.after_reply_texts:
         await outbound.send_text(db, user, text, agent_run_id=run.id)
     for body, buttons in st.after_reply_buttons:
@@ -323,6 +340,23 @@ async def _maybe_invite_to_companion(db: AsyncSession, user: User, journey, resu
         return
     journey.companion_invited_at = utcnow()
     await outbound.send_buttons(db, user, router.COMPANION_INVITE, router.INVITE_BUTTONS)
+
+
+async def _allowed_providers(db: AsyncSession, user: User, st) -> set[str]:
+    """Providers a reply may name: ones the user has a link with, has mentioned, or was shown as options."""
+    allowed = set(await router.provider_links(db, user)) | set(st.shown_providers)
+    if user.active_mode == "post_treatment":
+        allowed.add("essence")
+    recent = list(await db.scalars(select(Message.body).where(Message.user_id == user.id, Message.direction == "in")
+                                   .order_by(Message.created_at.desc()).limit(10)))
+    said = " ".join([st.user_text, *recent]).lower()
+    for slug, p in providers.catalog().items():
+        if any(n.lower() in said for n in [p["name"], *p.get("aliases", [])]):
+            allowed.add(slug)
+    shown = await db.scalars(select(ReferralOffer.providers_shown).where(
+        ReferralOffer.user_id == user.id, ReferralOffer.created_at > utcnow() - referral.COOLDOWN))
+    allowed |= {s for row in shown if row for s in row}
+    return allowed
 
 
 def _slot_button_text(button_id: str, title: str) -> str:

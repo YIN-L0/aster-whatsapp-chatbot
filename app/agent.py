@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import assessment_engine as eng
-from app import booking, companion, journeys, knowledge, memory, providers, router
+from app import booking, companion, journeys, knowledge, memory, providers, referral, router
 from app.channels import Button, is_web_user
 from app.config import get_settings
 from app.handoff import create_handoff
@@ -22,7 +22,7 @@ from app.models import utcnow as models_utcnow
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "main@companion-2"
+PROMPT_VERSION = "main@companion-3"
 MAX_TOOL_STEPS = 6
 
 SYSTEM_PROMPT = """You are Aster, an independent AI health & longevity companion on WhatsApp. You build a long-term \
@@ -190,15 +190,22 @@ Assessment and plan (weight, nutrition and digestion goals):
 - Use search_knowledge only when they ask about Essence.
 
 ## Module 3 – professional help and providers (either mode)
-- Only bring up providers when they ask for a professional, a service or a provider, or after they said yes to your \
-question "Would you like some options?". Ask that question only when a professional could really help with what \
-they described, at most once per topic, and never again after they said no.
-- First give neutral, useful advice, including whether they actually need professional help.
-- For now, describe the kind of professional who can help (e.g. a registered dietitian, their primary care doctor) \
-and how to find one. Partner options are not available in this version.
+- Providers are connected only when the person wants it. Two ways in: they ask for professional help, a service or a \
+provider (or tap "Find a service"); or you ask "Would you like some options?" and they say yes.
+- Ask that question only when a professional could really help with what they described – call offer_options first \
+(the system may refuse: then don't offer) and end your message with the offer. Never offer during a symptom \
+check-in or right after a plan, and never more than once per topic.
+- First give neutral, useful advice, including whether they actually need a professional. Then call find_services \
+and present what it returns, in its order: what each option is and why it fits them, any uncertainty, and the \
+neutral option. Never invent services, results, credentials or prices; never claim one option is better than the \
+data shows. The partnership disclosure is added for you.
+- Prices, booking and contact details only once they show interest in a specific option. For Essence clients in \
+post_treatment mode you can book with the booking tools; otherwise give the provider's contact or booking link. \
+Offer share_with_provider so they don't have to repeat themselves – nothing is shared without their tap.
+- If they say no ("no thanks", "not now"), call decline_options and carry on helping exactly as before. REFERRALS in \
+the context lists what they've said no to.
 - Clinical concerns are different: when someone needs a clinician, say so plainly (and use request_handoff when risk \
 >= 2) – that is care, not a referral.
-- If they decline, carry on helping as before.
 
 ## Output
 Return the final answer as the JSON object described by the output schema: "messages" is the list of WhatsApp \
@@ -420,10 +427,32 @@ def _companion_tools() -> list[ToolSpec]:
     ]
 
 
-TOOLS += _companion_tools()
+_NEED = {"type": "string", "enum": sorted(providers.NEEDS),
+         "description": "; ".join(f"{k}={v}" for k, v in providers.NEEDS.items())}
+REFERRAL_TOOLS = [
+    ToolSpec("offer_options", "Before asking \"Would you like some options?\" for a need the user hasn't asked about. "
+             "The system may refuse (offered already, or declined recently). Yes / No buttons are added for you.",
+             {"type": "object", "properties": {"need": _NEED}, "required": ["need"]}),
+    ToolSpec("find_services", "Matching providers and a neutral option for a need. Only after the user asked for "
+             "professional help or a service, or accepted your offer.",
+             {"type": "object", "properties": {
+                 "need": _NEED,
+                 "us_state": {"type": "string", "description": "two letters, only if the user said where they live"},
+                 "prefer": {"type": "string", "enum": ["virtual", "in_person"], "description": "only if they said so"}},
+              "required": ["need"]}),
+    ToolSpec("decline_options", "The user said no to options for a need. Aster won't offer them again for a while.",
+             {"type": "object", "properties": {"need": _NEED}, "required": ["need"]}),
+    ToolSpec("share_with_provider", "Ask the user (with buttons) whether to send a provider they chose a short "
+             "summary, so they don't have to repeat themselves. Nothing is shared without their tap.",
+             {"type": "object", "properties": {
+                 "provider": {"type": "string", "enum": sorted(providers.catalog())}, "need": _NEED},
+              "required": ["provider", "need"]}),
+]
+TOOLS += _companion_tools() + REFERRAL_TOOLS
 COMPANION_TOOL_NAMES = {"set_goal", "record_profile_facts", "skip_question", "pause_assessment", "get_plan_inputs",
                         "generate_plan"}
-SHARED_TOOLS = {"request_handoff", "switch_mode", "search_knowledge"}
+REFERRAL_TOOL_NAMES = {t.name for t in REFERRAL_TOOLS}
+SHARED_TOOLS = {"request_handoff", "switch_mode", "search_knowledge"} | REFERRAL_TOOL_NAMES
 MODE_TOOLS = {
     "post_treatment": SHARED_TOOLS | {"propose_journey", "record_recovery_update", "check_availability",
                                       "book_appointment", "list_my_appointments"},
@@ -442,6 +471,8 @@ class TurnState:
     source_message_ids: list[str]
     allow: bool | set[str] = True  # True = every tool of the active mode, False = none, or a set of names
     code_risk: int = 0  # risk the rules found in what was recorded (e.g. a GI red flag), merged after the reply
+    user_text: str = ""  # what the user wrote this turn (the referral gate checks it)
+    shown_providers: list[str] = field(default_factory=list)  # find_services results this turn
     after_reply_texts: list[str] = field(default_factory=list)  # e.g. the saved plan, sent after the reply
     booked: bool = False
     handoff_urgency: str | None = None
@@ -472,6 +503,8 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
         if not st.user.health_consent:
             return {"error": "no_health_consent"}
         return await _exec_companion(st, name, args)
+    if name in REFERRAL_TOOL_NAMES:
+        return await _exec_referral(st, name, args)
 
     if name == "switch_mode":
         mode = args.get("mode")
@@ -723,6 +756,62 @@ async def _exec_companion(st: TurnState, name: str, args: dict) -> dict:
                 "note": "The plan is sent right after your message. Write one or two sentences only (say it's a first "
                         "version if confidence is preliminary) and ask if they'd like to change anything. Don't "
                         "repeat the plan."}
+    return {"error": f"unknown_tool {name}"}
+
+
+async def _exec_referral(st: TurnState, name: str, args: dict) -> dict:
+    db, user, need = st.db, st.user, args.get("need")
+    if need not in providers.NEEDS:
+        return {"error": "unknown_need", "needs": sorted(providers.NEEDS)}
+    mode = user.active_mode
+
+    if name == "offer_options":
+        why = await referral.can_offer(db, user, need)
+        if why:
+            return {"error": why, "hint": "Don't offer options for this. Keep helping as before."}
+        row = await referral.log(db, user, need, "offered", mode=mode)
+        st.after_reply_buttons.append(("Would you like some options?", [
+            Button(f"ref:yes:{row.id}", "Yes, show options"), Button(f"ref:no:{row.id}", "No thanks")]))
+        return {"status": "offered", "note": "Buttons are added after your message. End with the offer in one short "
+                                             "sentence and nothing else after it."}
+
+    if name == "decline_options":
+        await referral.log(db, user, need, "declined", mode=mode)
+        return {"status": "noted", "note": "Say that's fine and carry on helping – no more offers for this."}
+
+    if name == "find_services":
+        why = await referral.may_show(db, user, need, st.user_text)
+        if why:
+            return {"error": why, "hint": "Give neutral advice. If a professional could really help, use offer_options."}
+        facts = await memory.load_facts(db, user)
+        result = eng.evaluate(companion.engine_answers(None, facts))
+        sp = result["special_population"]
+        age = facts["age"].value.get("age") if "age" in facts else None
+        matched = providers.match(
+            need, state=args.get("us_state"), mode=args.get("prefer"), age=age,
+            caution=sp["minor"] or sp["pregnancy"] or result["nutrition_concern"],
+            linked=frozenset(await router.provider_links(db, user)),
+        )
+        shown = [o["provider"] for o in matched["options"]]
+        st.shown_providers += shown
+        await referral.log(db, user, need, "options_shown", shown=shown, mode=mode)
+        for o in matched["options"]:
+            o.pop("disclosure")  # the system adds disclosures itself, after the reply
+        return {**matched, "rules": (
+            "Neutral advice first, including whether they really need a professional. Then up to 3 options in this "
+            "order, each with what it is and why it fits (reasons) and any uncertainties, plus the neutral option. Don't "
+            "give prices or contact details until they show interest in one; then give them. Use only what is here – "
+            "never invent services, results or qualifications. The partnership disclosure is added automatically.")}
+
+    if name == "share_with_provider":
+        p = providers.get(args.get("provider"))
+        if not p:
+            return {"error": "unknown_provider"}
+        summary = await referral.share_summary(db, user, need)
+        st.after_reply_buttons.append((
+            f"Share this with {p['name']}?\n\n{summary}",
+            [Button(f"ref:share:{p['slug']}:{need}", "Share my summary"), Button("ref:noshare", "Don't share")]))
+        return {"status": "asked", "note": "Buttons with exactly what would be shared are added after your message."}
     return {"error": f"unknown_tool {name}"}
 
 
