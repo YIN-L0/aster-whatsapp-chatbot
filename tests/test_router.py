@@ -48,7 +48,10 @@ async def test_direct_user_gets_the_essence_question_once_and_lands_in_the_compa
     assert all(len(b["title"]) <= 20 for b in triage["buttons"])
 
     await handle_inbound(inbound("No, my health goals", button_id="entry:direct"))
-    assert "Your health companion" in channel.sent[-1]["text"]
+    assert "Your health companion" in channel.sent[-2]["text"]
+    goals = channel.sent[-1]
+    assert goals["type"] == "list" and _ids(goals)[0] == "goal:lose_weight" and len(goals["rows"]) <= 10
+    assert all(len(r["title"]) <= 24 for r in goals["rows"])
     user = await _user()
     assert (user.entry_source, user.active_mode) == ("direct", "companion")
     assert await _links() == {}
@@ -109,7 +112,7 @@ async def test_ice_breaker_tapped_before_consent_routes_after_consent(channel):
     set_provider(FakeProvider([]))
     await handle_inbound(inbound("Help me with my health goals"))
     await handle_inbound(inbound("I Agree", button_id="consent:yes"))
-    assert "Your health companion" in channel.sent[-1]["text"]
+    assert "Your health companion" in channel.sent[-2]["text"] and channel.sent[-1]["type"] == "list"
 
 
 # ---------- menu and modes ----------

@@ -76,8 +76,10 @@ def test_readiness_depends_on_core_information_not_on_a_count():
     # Three supporting answers but nothing core: still not ready
     many = facts(sex={"sex": "female"}, diet_plan={"diet_plans": ["none"]}, gut_symptoms={"gi_symptoms": ["gi_none"]})
     assert comp.readiness("lose_weight", many, set(), NOW)["level"] == "not_ready"
-    # Two of four core slots: a first plan is possible
-    assert comp.readiness("lose_weight", facts(body_measures=BODY, meals=MEALS), set(), NOW)["level"] == "preliminary"
+    # Two of four core slots: not yet (body numbers alone say little about habits); three: a first plan is possible
+    assert comp.readiness("lose_weight", facts(body_measures=BODY, meals=MEALS), set(), NOW)["level"] == "not_ready"
+    three = facts(body_measures=BODY, meals=MEALS, exercise=EXERCISE)
+    assert comp.readiness("lose_weight", three, set(), NOW)["level"] == "preliminary"
 
 
 def test_ready_needs_core_resolved_and_half_of_supporting_and_skips_count_as_resolved():

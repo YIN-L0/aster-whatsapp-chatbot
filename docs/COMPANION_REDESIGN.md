@@ -198,8 +198,8 @@ not_started ─intro (why + what you'll get, "skip anytime")─▶ in_progress �
 | Level | Rule (for the focus goal) | Behaviour |
 |---|---|---|
 | `blocked` | GI red flag, or under 13 | no plan; the safety reply + handoff |
-| `not_ready` | no goal, or < 40 % of core slots *known* | keep exploring; if the user asks for a plan anyway → preliminary plan with explicit limitations |
-| `preliminary` | ≥ 40 % core known | agent may offer a first plan; plan marked "first version" + lists what's missing |
+| `not_ready` | no goal, or < 60 % of core slots *known* | keep exploring; if the user asks for a plan anyway → preliminary plan with explicit limitations |
+| `preliminary` | ≥ 60 % core known | agent may offer a first plan; plan marked "first version" + lists what's missing |
 | `ready` | every core slot known **or explicitly skipped**, and ≥ 50 % supporting known | agent offers the full plan |
 
 Skipped slots count as *resolved* (we stop asking) but not *known* (they lower confidence and appear as limitations).

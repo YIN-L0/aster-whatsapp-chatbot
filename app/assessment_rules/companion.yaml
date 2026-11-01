@@ -4,7 +4,9 @@
 version: companion@draft-1
 
 readiness:
-  preliminary_core_ratio: 0.4  # share of core slots known before a first plan is offered
+  # share of core slots known before a first plan is offered (0.4 offered a weight plan from height, weight and age
+  # alone in a real-LLM run – too early). The user can always ask for a plan sooner.
+  preliminary_core_ratio: 0.6
   ready_supporting_ratio: 0.5  # share of supporting slots known (with every core slot resolved) for a full plan
 
 # Slots: one piece of information each. `step` and `fields` are where the weight_gut engine reads it.

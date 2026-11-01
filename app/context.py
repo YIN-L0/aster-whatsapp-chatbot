@@ -6,11 +6,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, journeys
+import json
+
+from app import assessment_engine, booking, companion, journeys, memory
 from app.channels import is_web_user
 from app.config import get_settings
 from app.handoff import open_handoff
-from app.models import Checkin, Journey, Message, Plan, ProviderLink, User, UserGoal
+from app.models import Checkin, Journey, Message, ProviderLink, User
 
 HISTORY_LIMIT = 20
 
@@ -108,12 +110,40 @@ async def mode_block(db: AsyncSession, user: User, journey: Journey | None, chec
         return await _post_treatment_block(db, user, journey, checkin)
     tz = ZoneInfo(user.timezone)
     lines = ["COMPANION:"]
-    goals = list(await db.scalars(select(UserGoal).where(UserGoal.user_id == user.id, UserGoal.status == "active")))
+    goals = await memory.goals(db, user)
     lines.append("  goals: " + (_fmt_list([f"{g.code}{' (focus)' if g.is_focus else ''}"
                                           + (f" – \"{g.label_raw}\"" if g.label_raw else "") for g in goals])))
-    plan = await db.scalar(select(Plan).where(Plan.user_id == user.id, Plan.status == "active")
-                           .order_by(Plan.version.desc()))
-    lines.append(f"  plan: {f'{plan.goal} v{plan.version} from {plan.created_at:%Y-%m-%d}' if plan else 'none yet'}")
+    focus = next((g for g in goals if g.is_focus), None)
+    if focus and not companion.is_structured(focus.code):
+        lines.append(f"  focus goal {focus.code} is chat only for now: general guidance, no structured assessment "
+                     "or plan yet (a fuller plan for it is coming later)")
+    plan = await memory.active_plan(db, user)
+    lines.append(f"  plan: {f'{plan.goal} v{plan.version} from {plan.created_at:%Y-%m-%d} ({plan.confidence})' if plan else 'none yet'}")
+    facts = await memory.load_facts(db, user)
+    now = datetime.now(tz)
+    if facts:
+        lines.append("  PROFILE (what they told you – don't ask again):")
+        lines += [f"    {k}: {json.dumps(f.value, separators=(',', ':'))[:160]} ({(now - f.recorded_at).days}d ago)"
+                  for k, f in facts.items()]
+    a = await memory.current_assessment(db, user)
+    if a:
+        skipped = set(a.skipped_slots)
+        r = companion.readiness(a.goal, facts, skipped, now)
+        lines.append(f"  ASSESSMENT: goal={a.goal}; status={a.status}; readiness={r['level']} (core "
+                     f"{r.get('core_known', 0)}/{r.get('core_total', 0)}, supporting {r.get('supporting_known', 0)}/"
+                     f"{r.get('supporting_total', 0)}); skipped={_fmt_list(sorted(skipped))}")
+        if a.status == "paused":
+            lines.append("    paused – offer to continue only if it fits what they're saying; don't push")
+        nxt = companion.next_slot(a.goal, facts, skipped, now)
+        if nxt:
+            lines.append(f"    NEXT QUESTION: slot={nxt['slot']}; mode={nxt['mode']}; purpose={nxt['purpose']} "
+                         f"ask_hint={nxt['ask_hint']} examples={' | '.join(nxt['examples'])}"
+                         + (f"; previous answer={json.dumps(nxt['previous'])}" if nxt["previous"] else ""))
+            if nxt["slot"] == "meals":
+                lines.append("    FOOD ESTIMATES (for kcal_est only, never quote exact numbers): "
+                             + "; ".join(assessment_engine.rules()["diet"]["quick_estimates"]))
+        else:
+            lines.append("    every question is answered or skipped")
     if journey:
         lines.append(f"  essence treatment on file: {journey.treatment_label_raw} on {journey.treatment_date} "
                      f"(Day {journeys.day_post_treatment(user, journey)}) – details are in post_treatment mode")

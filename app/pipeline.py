@@ -135,7 +135,11 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     # A. Button replies are handled deterministically – the LLM never commits journey data.
     button_id = (last.payload or {}).get("button_id")
     if button_id:
-        if button_id.startswith("slot:"):
+        if button_id.startswith("goal:"):
+            # A goal picked from the list: the agent records it (set_goal) and starts the conversation
+            last.body = f"My goal: {last.body} [goal={button_id.removeprefix('goal:')}]"
+            text = "\n".join(m.body for m in pending if m.body).strip()
+        elif button_id.startswith("slot:"):
             # A booking time button: the agent books it (it may still need the patient's name and date of birth)
             last.body = _slot_button_text(button_id, last.body)
             text = "\n".join(m.body for m in pending if m.body).strip()
@@ -276,7 +280,7 @@ async def _run_main_agent(
 async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: AgentResult, violations: list[str],
                        received_at: datetime | None = None) -> None:
     st = result.state
-    risk = max(run.risk_rule, result.risk_level)
+    risk = max(run.risk_rule, result.risk_level, st.code_risk)
     for entry_id in st.recorded_entry_ids:
         if await journeys.has_worsening(db, entry_id):
             risk = max(risk, 2)
@@ -303,6 +307,8 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
             run.reply_ms = int((utcnow() - received_at).total_seconds() * 1000)
             log.info("reply sent in %.1fs (llm %.1fs, tools=%s) user=%s", run.reply_ms / 1000, run.latency_ms / 1000,
                      ",".join(t["tool"] for t in (run.tool_calls or [])) or "-", user.id)
+    for text in st.after_reply_texts:
+        await outbound.send_text(db, user, text, agent_run_id=run.id)
     for body, buttons in st.after_reply_buttons:
         if st.booked and buttons[0].id.startswith("slot:"):
             continue  # booked in this turn – the time buttons are stale

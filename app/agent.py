@@ -11,16 +11,18 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, journeys, knowledge, router
+from app import assessment_engine as eng
+from app import booking, companion, journeys, knowledge, memory, providers, router
 from app.channels import Button, is_web_user
 from app.config import get_settings
 from app.handoff import create_handoff
 from app.llm import LLMProvider, ToolSpec, get_backup_provider, get_provider
 from app.models import AgentRun, Appointment, Checkin, Journey, User
+from app.models import utcnow as models_utcnow
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "main@companion-1"
+PROMPT_VERSION = "main@companion-2"
 MAX_TOOL_STEPS = 6
 
 SYSTEM_PROMPT = """You are Aster, an independent AI health & longevity companion on WhatsApp. You build a long-term \
@@ -171,7 +173,19 @@ evidence is limited or mixed. Practical, small next steps beat long lists.
 - Don't ask about medical conditions, medications, pregnancy or family history. If they share any, take it into \
 account conservatively and suggest checking with their doctor before big changes. No calorie targets for anyone \
 under 18, pregnant or breastfeeding.
-- Remember what they tell you and use it later instead of asking again.
+- Remember what they tell you (PROFILE in the context) and use it later instead of asking again.
+
+Assessment and plan (weight, nutrition and digestion goals):
+- When they say what they want to work on, call set_goal. Structured goals: lose_weight, build_muscle, maintain, body_shape, gut_health, general (eat healthier). The others (sleep, stress, energy, fitness, healthy_aging, skin, other) are chat only for now: give general guidance, remember the goal, and say a fuller plan for it is coming later.
+- If set_goal returns intro, open with it, then ask the first question.
+- Ask the NEXT QUESTION from the tool result or the context – in your own words, one at a time, with its examples when it's not obvious how to answer. mode=confirm means: check the earlier answer is still right instead of asking from scratch. Don't add your own assessment questions.
+- After each answer, call record_profile_facts with everything they told you (every slot they answered, not only the one you asked). If it returns problems, ask once, briefly, for the missing part. Never guess a value.
+- "skip", "rather not say" → skip_question. "later", "stop", "not now" → pause_assessment.
+- If record_profile_facts returns safety, follow it: say it kindly and don't ask the next question in that message.
+- When readiness becomes preliminary or ready, offer a plan once ("I can put together a first plan now, or ask a couple more questions so it fits you better – your call."). If they ask for a plan at any point, make one (user_asked=true) – a first version is fine.
+- To make a plan: get_plan_inputs, then generate_plan, built only from those inputs. Concrete, small, doable steps; metrics from metric_options. No providers, products, prices or supplements.
+- After generate_plan, write one or two sentences only (say it's a first version if confidence is preliminary) and ask if they'd like to change anything – the system sends the plan itself.
+- When they share something that changes the plan, or ask to change it, record it and generate_plan again (a new version).
 - Don't mention providers, products or paid services unless they ask for professional help or a service (Module 3).
 - Use search_knowledge only when they ask about Essence.
 
@@ -330,12 +344,91 @@ TOOLS = [
     ),
 ]
 
+
+
+def _codes(values) -> dict:
+    return {"type": "array", "items": {"type": "string", "enum": sorted(values)}}
+
+
+def _companion_tools() -> list[ToolSpec]:
+    """Field schemas come from the rule tables, so the model can only pass codes the engine knows."""
+    w = eng.rules()
+    activity = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "enum": sorted(w["exercise"]["activities"])},
+            "sessions_per_week": {"type": "number"},
+            "minutes": {"type": "number", "description": "per session"},
+            "intensity": {"type": "string", "enum": ["light", "moderate", "vigorous"], "description": "for code=other"},
+        },
+        "required": ["code"],
+    }
+    food = {"type": "object", "properties": {
+        "item": {"type": "string"}, "portion": {"type": "string", "enum": ["small", "regular", "large"]},
+        "kcal_est": {"type": "number", "description": "rough estimate from FOOD ESTIMATES in the context"}},
+        "required": ["item"]}
+    slots = {
+        "body_measures": {"type": "object", "description": "use the units the user gave", "properties": {
+            "weight_kg": {"type": "number"}, "weight_lb": {"type": "number"}, "height_cm": {"type": "number"},
+            "height_ft": {"type": "number"}, "height_in": {"type": "number"}}},
+        "age": {"type": "object", "properties": {"age": {"type": "integer"},
+                                                 "age_band": {"type": "string", "description": "e.g. 30-39"}}},
+        "sex": {"type": "object", "properties": {"sex": {"type": "string", "enum": ["female", "male", "prefer_not"]}},
+                "required": ["sex"]},
+        "exercise": {"type": "object", "properties": {"activities": {
+            "type": "array", "items": activity, "description": "[] means no regular exercise"}}, "required": ["activities"]},
+        "meals": {"type": "object", "properties": {
+            "meals_per_day": {"type": "integer"}, "foods": {"type": "array", "items": food},
+            "diet_flags": _codes(w["diet"]["flags"])}},
+        "diet_plan": {"type": "object", "properties": {
+            "diet_plans": _codes(w["diet_plans"]), "eating_patterns": _codes(w["eating_patterns"]),
+            "glp1": {"type": "string", "enum": ["none", "effective", "side_effects"],
+                     "description": "only if the user brought up GLP-1 medication themselves"}}},
+        "gut_symptoms": {"type": "object", "properties": {
+            "gi_symptoms": _codes(set(w["gut"]["symptoms"]) | set(w["gut"]["red_flags"]))}, "required": ["gi_symptoms"]},
+    }
+    plan = {"type": "object", "properties": {
+        "situation_summary": {"type": "string", "description": "2-3 sentences in plain words"},
+        "priorities": {"type": "array", "items": {"type": "string"}, "description": "1-3, most important first"},
+        "daily_habits": {"type": "array", "items": {"type": "string"}},
+        "weekly_habits": {"type": "array", "items": {"type": "string"}},
+        "metrics": {"type": "array", "items": {"type": "string"}, "description": "what to track, from metric_options"},
+        "review_in_days": {"type": "integer", "description": "7-90"}},
+        "required": ["situation_summary", "priorities", "daily_habits", "weekly_habits", "metrics", "review_in_days"]}
+    return [
+        ToolSpec("set_goal", "Record what the user wants to work on and make it their focus. For structured goals this "
+                 "starts or resumes the assessment and returns the first question.",
+                 {"type": "object", "properties": {
+                     "goal": {"type": "string", "enum": list(companion.rules()["goals"])},
+                     "in_their_words": {"type": "string"}}, "required": ["goal"]}),
+        ToolSpec("record_profile_facts", "Save what the user just told you, as fields per slot (any slots they "
+                 "answered, not only the one you asked). Returns problems to clarify and the next question.",
+                 {"type": "object", "properties": {"facts": {"type": "object", "properties": slots}},
+                  "required": ["facts"]}),
+        ToolSpec("skip_question", "The user doesn't want to answer this one. Returns the next question.",
+                 {"type": "object", "properties": {"slot": {"type": "string", "enum": list(companion.rules()["slots"])}},
+                  "required": ["slot"]}),
+        ToolSpec("pause_assessment", "The user wants to stop for now. Progress is kept.", {"type": "object", "properties": {}}),
+        ToolSpec("get_plan_inputs", "Everything a plan may be built from: findings, cautions, what's missing, metric "
+                 "options. Call before generate_plan.", {"type": "object", "properties": {}}),
+        ToolSpec("generate_plan", "Save a new plan version from get_plan_inputs. The system sends the plan to the "
+                 "user after your reply.",
+                 {"type": "object", "properties": {
+                     "plan": plan,
+                     "user_asked": {"type": "boolean", "description": "true if the user asked for a plan now"}},
+                  "required": ["plan", "user_asked"]}),
+    ]
+
+
+TOOLS += _companion_tools()
+COMPANION_TOOL_NAMES = {"set_goal", "record_profile_facts", "skip_question", "pause_assessment", "get_plan_inputs",
+                        "generate_plan"}
 SHARED_TOOLS = {"request_handoff", "switch_mode", "search_knowledge"}
 MODE_TOOLS = {
     "post_treatment": SHARED_TOOLS | {"propose_journey", "record_recovery_update", "check_availability",
                                       "book_appointment", "list_my_appointments"},
-    "companion": SHARED_TOOLS,
-    "none": SHARED_TOOLS,
+    "companion": SHARED_TOOLS | COMPANION_TOOL_NAMES,
+    "none": SHARED_TOOLS | COMPANION_TOOL_NAMES,
 }
 
 
@@ -348,6 +441,8 @@ class TurnState:
     agent_run: AgentRun
     source_message_ids: list[str]
     allow: bool | set[str] = True  # True = every tool of the active mode, False = none, or a set of names
+    code_risk: int = 0  # risk the rules found in what was recorded (e.g. a GI red flag), merged after the reply
+    after_reply_texts: list[str] = field(default_factory=list)  # e.g. the saved plan, sent after the reply
     booked: bool = False
     handoff_urgency: str | None = None
     recorded_entry_ids: list[uuid.UUID] = field(default_factory=list)
@@ -372,6 +467,11 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
         # Code, not the prompt, decides which tools a mode has (e.g. no booking in the companion)
         return {"error": "tool_not_available", "active_mode": st.user.active_mode,
                 "hint": "Use switch_mode first if the user's request belongs to the other mode."}
+
+    if name in COMPANION_TOOL_NAMES:
+        if not st.user.health_consent:
+            return {"error": "no_health_consent"}
+        return await _exec_companion(st, name, args)
 
     if name == "switch_mode":
         mode = args.get("mode")
@@ -496,6 +596,133 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
         return {"status": "team_notified", "urgency": urgency,
                 "expectation": f"{who} will reach out (demo: during working hours)."}
 
+    return {"error": f"unknown_tool {name}"}
+
+
+INTRO_HINT = ("Before the first question, say in one or two sentences that you'll ask a few quick questions, one at a "
+              "time, so your suggestions fit them – any can be skipped – and that they'll end up with a personal plan "
+              "they can update anytime.")
+# The rules' handoff reasons → urgency (red flags are urgent; the rest ask a person to check in)
+ENGINE_HANDOFF_RISK = {"gi_red_flag": 3, "special_population": 2, "nutrition_concern": 2, "glp1_side_effects": 2}
+
+
+async def _assessment_view(st: TurnState, goal: str | None, skipped: set[str], facts=None) -> dict:
+    facts = facts if facts is not None else await memory.load_facts(st.db, st.user)
+    now = models_utcnow()
+    nxt = companion.next_slot(goal, facts, skipped, now)
+    ready = companion.readiness(goal, facts, skipped, now)
+    view = {"readiness": ready["level"], "next_question": nxt or "none – every question is answered or skipped"}
+    if ready["level"] in ("preliminary", "ready"):
+        view["plan_hint"] = "You may offer a plan (once), or make one if they ask."
+    if ready["level"] == "blocked":
+        view["plan_hint"] = "No plan now – a clinician needs to look at this first."
+    return view
+
+
+async def _exec_companion(st: TurnState, name: str, args: dict) -> dict:
+    db, user = st.db, st.user
+    if name == "set_goal":
+        code = args.get("goal")
+        if not companion.goal_spec(code):
+            return {"error": "unknown_goal"}
+        await memory.set_goal(db, user, code, args.get("in_their_words"))
+        if not companion.is_structured(code):
+            return {"status": "saved", "structured": False,
+                    "note": "No structured assessment for this goal yet. Give general, science-informed guidance, ask "
+                            "what matters most to them, and say a fuller plan for this goal is coming later."}
+        a, is_new = await memory.start_assessment(db, user, code)
+        out = {"status": "started" if is_new else "resumed", "goal": code,
+               **await _assessment_view(st, code, set(a.skipped_slots))}
+        if not a.intro_shown:
+            a.intro_shown = True
+            out["intro"] = INTRO_HINT
+        a.current_slot = (out["next_question"] or {}).get("slot") if isinstance(out["next_question"], dict) else None
+        return out
+
+    a = await memory.current_assessment(db, user)
+    if name == "record_profile_facts":
+        facts_in = args.get("facts") if isinstance(args.get("facts"), dict) else {}
+        before = await memory.load_facts(db, user)
+        saved, problems = [], {}
+        for slot, value in facts_in.items():
+            if slot not in companion.rules()["slots"]:
+                problems[slot] = ["unknown slot"]
+                continue
+            clean, issues = companion.validate_slot(slot, value)
+            if clean:
+                await memory.save_fact(db, user, slot, clean, agent_run_id=st.agent_run.id,
+                                       source_message_ids=st.source_message_ids)
+                saved.append(slot)
+            if issues:
+                problems[slot] = issues
+        after = await memory.load_facts(db, user)
+        goal = a.goal if a else None
+        if a:
+            a.asked_slots = list(dict.fromkeys([*a.asked_slots, *saved]))
+            if a.status == "paused":
+                a.status = "in_progress"
+        result = eng.evaluate(companion.engine_answers(goal, after))
+        out = {"saved": saved, "problems": problems or None,
+               "findings_so_far": [f["text"] for f in result["findings"]][:6]}
+        if a:
+            out.update(await _assessment_view(st, goal, set(a.skipped_slots), after))
+            nq = out["next_question"]
+            a.current_slot = nq.get("slot") if isinstance(nq, dict) else None
+        # Safety from the rules, in code: a new red flag or special situation raises risk and alerts a person
+        reason = (result.get("handoff") or {}).get("reason")
+        prev = (eng.evaluate(companion.engine_answers(goal, before)).get("handoff") or {}).get("reason")
+        if reason in ENGINE_HANDOFF_RISK and reason != prev:
+            risk = ENGINE_HANDOFF_RISK[reason]
+            urgency = "urgent" if risk >= 3 else "routine"
+            await create_handoff(db, user, reason=reason, urgency=urgency, team=router.team_for(user, st.journey),
+                                 note=f"Assessment rule: {reason}", signals={"source": "assessment_rules"})
+            st.handoff_urgency, st.code_risk = urgency, max(st.code_risk, risk)
+            out["safety"] = {"handoff": urgency, "say": result["notes"][:2],
+                             "hint": "Tell them kindly; for urgent, that if it gets worse they should call 911 or go "
+                                     "to the ER. Don't continue the assessment in this message."}
+        return out
+
+    if a is None:
+        return {"error": "no_assessment", "hint": "Call set_goal first."}
+
+    if name == "skip_question":
+        a.skipped_slots = list(dict.fromkeys([*a.skipped_slots, args.get("slot")]))
+        out = await _assessment_view(st, a.goal, set(a.skipped_slots))
+        a.current_slot = out["next_question"].get("slot") if isinstance(out["next_question"], dict) else None
+        return {"status": "skipped", **out}
+
+    if name == "pause_assessment":
+        await memory.pause_open_assessment(db, user)
+        return {"status": "paused", "note": "Say they can pick up anytime – just say so, or type MENU."}
+
+    facts = await memory.load_facts(db, user)
+    skipped = set(a.skipped_slots)
+    skeleton = companion.plan_skeleton(a.goal, facts, skipped, models_utcnow())
+    if name == "get_plan_inputs":
+        current = await memory.active_plan(db, user)
+        return {**skeleton, "current_plan": current.content if current else None,
+                "rules": "Use only these inputs. Energy as ranges, never one number. Include every caution kindly. "
+                         "discuss_with_clinician items are 'worth asking your doctor about'. No providers, products, "
+                         "prices or supplements."}
+
+    if name == "generate_plan":
+        level = skeleton["readiness"]
+        if level == "blocked":
+            return {"error": "plan_blocked", "hint": "A clinician needs to look at this first. No plan now."}
+        if level == "not_ready" and not args.get("user_asked"):
+            return {"error": "not_enough_information",
+                    "hint": "Ask the next question, or offer a first plan with what you know."}
+        draft = args.get("plan") if isinstance(args.get("plan"), dict) else {}
+        problems = companion.validate_plan(draft, providers.banned_plan_terms())
+        if problems:
+            return {"error": "plan_rejected", "problems": problems, "hint": "Fix these and call generate_plan again."}
+        plan = await memory.save_plan(db, user, a, draft, skeleton, await memory.current_fact_ids(db, user),
+                                      st.agent_run.id)
+        st.after_reply_texts.append(router.format_plan(plan))
+        return {"status": "saved", "version": plan.version, "confidence": plan.confidence,
+                "note": "The plan is sent right after your message. Write one or two sentences only (say it's a first "
+                        "version if confidence is preliminary) and ask if they'd like to change anything. Don't "
+                        "repeat the plan."}
     return {"error": f"unknown_tool {name}"}
 
 

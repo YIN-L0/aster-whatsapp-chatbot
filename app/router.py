@@ -9,12 +9,12 @@ import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import journeys, outbound, providers
+from app import journeys, memory, outbound, providers
 from app.channels import Button, ListRow
 from app.companion import goal_spec
 from app.config import get_settings
 from app.handoff import create_handoff
-from app.models import CompanionAssessment, Message, Plan, ProviderLink, User
+from app.models import Message, Plan, ProviderLink, User
 
 PREFIXES = ("entry:", "menu:", "mode:", "invite:")
 MENU_WORDS = {"MENU", "HOME", "SWITCH", "/MENU"}
@@ -105,17 +105,12 @@ async def after_consent(db: AsyncSession, user: User) -> None:
 # ---------- menu and modes ----------
 
 
-async def open_assessment(db: AsyncSession, user: User) -> CompanionAssessment | None:
-    return await db.scalar(
-        select(CompanionAssessment)
-        .where(CompanionAssessment.user_id == user.id, CompanionAssessment.status.in_(("in_progress", "paused")))
-        .order_by(CompanionAssessment.created_at.desc())
-    )
-
-
-async def active_plan(db: AsyncSession, user: User) -> Plan | None:
-    return await db.scalar(select(Plan).where(Plan.user_id == user.id, Plan.status == "active")
-                           .order_by(Plan.version.desc()))
+open_assessment = memory.open_assessment
+GOAL_ROWS = [  # id goal:<code> – the agent receives "My goal: <title>" and calls set_goal
+    ("lose_weight", "Lose weight"), ("build_muscle", "Build muscle"), ("gut_health", "Better digestion"),
+    ("general", "Eat healthier"), ("body_shape", "Change body shape"), ("maintain", "Keep a healthy weight"),
+    ("sleep", "Sleep better"), ("stress", "Manage stress"), ("energy", "More energy"), ("other", "Something else"),
+]
 
 
 def _goal_label(goal: str) -> str:
@@ -150,11 +145,14 @@ async def enter_companion(db: AsyncSession, user: User) -> None:
     user.active_mode = "companion"
     a = await open_assessment(db, user)
     if a:
-        text = (f"Welcome back to your health companion 🌿 Last time we were working on *{_goal_label(a.goal)}*. "
-                "Want to pick up where we left off, or is something else on your mind?")
-    else:
-        text = COMPANION_INTRO
-    await outbound.send_text(db, user, text, sender="aster_system")
+        await outbound.send_text(db, user, f"Welcome back to your health companion 🌿 Last time we were working on "
+                                 f"*{_goal_label(a.goal)}*. Want to pick up where we left off, or is something else on "
+                                 "your mind?", sender="aster_system")
+        return
+    await outbound.send_text(db, user, COMPANION_INTRO, sender="aster_system")
+    if not await memory.goals(db, user):
+        await outbound.send_list(db, user, "Pick one to start, or just tell me in your own words.", "Choose a goal",
+                                 [ListRow(f"goal:{code}", title) for code, title in GOAL_ROWS])
 
 
 async def enter_post_treatment(db: AsyncSession, user: User) -> None:
@@ -167,6 +165,7 @@ async def enter_post_treatment(db: AsyncSession, user: User) -> None:
         )
         return
     user.active_mode = "post_treatment"
+    await memory.pause_open_assessment(db, user)
     journey = await journeys.get_primary_journey(db, user.id)
     if journey:
         text = (f"Your last recorded treatment is *{journey.treatment_label_raw}* on {journey.treatment_date:%b %-d} "
@@ -177,23 +176,33 @@ async def enter_post_treatment(db: AsyncSession, user: User) -> None:
     await outbound.send_text(db, user, text, sender="aster_system")
 
 
-async def send_plan(db: AsyncSession, user: User) -> None:
-    plan = await active_plan(db, user)
-    if not plan:
-        await outbound.send_buttons(db, user, "You don't have a plan yet. In your health companion we can build one "
-                                    "together – it starts with a few questions, and you can skip any of them.",
-                                    [Button("mode:companion", "Start now"), Button("menu:open", "Menu")])
-        return
+def format_plan(plan: Plan) -> str:
+    """The plan exactly as stored – what the user sees is what Aster remembers."""
     c = plan.content
-    parts = [f"*Your plan – {_goal_label(plan.goal)}* (version {plan.version}, {plan.created_at:%b %-d})",
+    parts = [f"📋 *Your plan – {_goal_label(plan.goal)}* (version {plan.version}, {plan.created_at:%b %-d})",
              c.get("situation_summary", "")]
     for title, key in (("Priorities", "priorities"), ("Every day", "daily_habits"), ("Every week", "weekly_habits"),
                        ("What to track", "metrics")):
         if c.get(key):
             parts.append(f"*{title}*\n" + "\n".join(f"• {i}" for i in c[key]))
     if plan.confidence == "preliminary":
-        parts.append("_This is a first version – it gets better as you tell me more._")
-    await outbound.send_text(db, user, "\n\n".join(p for p in parts if p), sender="aster_system")
+        missing = [x.split(": ", 1)[1] for x in c.get("limitations", []) if x.startswith("Not known yet")]
+        parts.append("_This is a first version based on what I know so far"
+                     + (f" (still unknown: {', '.join(missing)})" if missing else "")
+                     + ". It gets better as you tell me more._")
+    if plan.review_after:
+        parts.append(f"_Let's look at it again around {plan.review_after:%b %-d}. Type MENU → My plan to see it anytime._")
+    return "\n\n".join(p for p in parts if p)
+
+
+async def send_plan(db: AsyncSession, user: User) -> None:
+    plan = await memory.active_plan(db, user)
+    if not plan:
+        await outbound.send_buttons(db, user, "You don't have a plan yet. In your health companion we can build one "
+                                    "together – it starts with a few questions, and you can skip any of them.",
+                                    [Button("mode:companion", "Start now"), Button("menu:open", "Menu")])
+        return
+    await outbound.send_text(db, user, format_plan(plan), sender="aster_system")
 
 
 def team_for(user: User, journey=None) -> str:
