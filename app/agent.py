@@ -15,12 +15,12 @@ from app import booking, journeys, knowledge
 from app.channels import Button, is_web_user
 from app.config import get_settings
 from app.handoff import create_handoff
-from app.llm import LLMProvider, ToolSpec, get_provider
+from app.llm import LLMProvider, ToolSpec, get_backup_provider, get_provider
 from app.models import AgentRun, Appointment, Checkin, Journey, User
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "main@demo-6"
+PROMPT_VERSION = "main@demo-7"
 MAX_TOOL_STEPS = 6
 
 SYSTEM_PROMPT = """You are Aster, a recovery companion that supports patients of Essence Aesthetics & Wellness \
@@ -102,6 +102,10 @@ for those again.
 - If book_appointment returns pending_clinic_confirmation, say the request is in and the clinic will confirm – not \
 that it is booked. If it returns an error with a hint, follow the hint.
 - You can't cancel or move appointments yet: call request_handoff(reason="other") and say the team will help.
+- Bookings are always for the person you're chatting with – their name and phone number go on the booking. If they \
+want to book for someone else (a parent, partner, friend), don't ask for that person's details, offer times or book. \
+Kindly explain that the other person can message Essence on WhatsApp from their own phone or call (317) 555-0142, and \
+offer to ask the team to help (request_handoff(reason="other")). You may still answer general questions.
 - If the protocol has a provider_followup_visit, offer to book it when you wrap up the check-in.
 - Only promise "I'll check in again <when>" if NEXT_CHECKIN in the context says one is scheduled, and use that timing.
 - You are not a general-purpose assistant. Politely decline anything unrelated to Essence, the patient's treatments \
@@ -405,6 +409,20 @@ _BOOKING_HINTS = {
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def slot_buttons(slots: list[dict], service_code: str) -> list[Button]:
+    """Two time buttons + "Other times". Prefers two different times, and adds the provider's first name when it fits
+    WhatsApp's 20-char limit, so two providers free at the same time don't show as identical buttons."""
+    first, rest = slots[0], slots[1:]
+    second = next((x for x in rest if x["start"] != first["start"]), rest[0] if rest else None)
+    buttons = []
+    for x in [first] + ([second] if second else []):
+        when = datetime.fromisoformat(x["start"])
+        label = f"{when:%-m/%-d} " + (f"{when:%-I%p}" if when.minute == 0 else f"{when:%-I:%M%p}")
+        named = f"{label} {x['doctor_name'].split()[0]}"
+        buttons.append(Button(f"slot:{x['start']}|{x['doctor']}|{service_code}", named if len(named) <= 20 else label))
+    return buttons + [Button("slot:other", "Other times")]
+
+
 async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name: str, args: dict) -> dict:
     user = st.user
     phone = user.phone if is_web_user(user.wa_id) else f"+{user.wa_id}"
@@ -441,15 +459,14 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
             if not slots:
                 return {"slots": [], "note": "No openings found. Offer another day, or the clinic phone number."}
             st.after_reply_buttons = [b for b in st.after_reply_buttons if not b[1][0].id.startswith("slot:")]
-            st.after_reply_buttons.append((
-                "Tap a time to book it, or tell me another day.",
-                [Button(f"slot:{x['start']}|{x['doctor']}|{svc['code']}",
-                        f"Book {datetime.fromisoformat(x['start']):%-m/%-d %-I:%M %p}") for x in slots[:2]]
-                + [Button("slot:other", "Other times")],
-            ))
+            st.after_reply_buttons.append(
+                ("Tap a time to book it, or tell me another day.", slot_buttons(slots, svc["code"]))
+            )
             return {"service": svc["name"], "duration_minutes": svc.get("durationMinutes"),
                     "slots": [{"slot": x["start"], "provider": x["doctor_name"],
-                               "label": booking.fmt_slot(datetime.fromisoformat(x["start"]))} for x in slots]}
+                               "label": booking.fmt_slot(datetime.fromisoformat(x["start"]))} for x in slots],
+                    "note": "Buttons for these times are sent after your reply. Name the earliest time as a fact and "
+                            "end with ONE question asking if they'd like to book it – never ask whether to check times."}
 
         # book_appointment
         if doctor is None:
@@ -518,49 +535,76 @@ class AgentResult:
     error: str | None = None
 
 
+class LLMCallFailed(Exception):
+    """The LLM API call itself failed (no credit, bad key, outage, timeout) – not the model's answer."""
+
+
+async def _agent_loop(st: TurnState, provider: LLMProvider, history: list[dict], final_user_content: str,
+                      tools: list[ToolSpec]) -> str:
+    """Model ↔ tools until the model gives its final answer; returns that answer's JSON text."""
+    conv = provider.start(SYSTEM_PROMPT, history + [{"role": "user", "content": final_user_content}])
+    run = st.agent_run
+    run.provider, run.model = provider.name, provider.model
+    for _ in range(MAX_TOOL_STEPS + 1):
+        try:
+            step = await provider.step(conv, tools, OUTPUT_SCHEMA)
+        except Exception as exc:
+            raise LLMCallFailed(f"{provider.name}: {exc}") from exc
+        run.input_tokens += step.input_tokens
+        run.output_tokens += step.output_tokens
+        run.latency_ms += step.latency_ms
+        if step.stop_reason != "tool_use":
+            if step.stop_reason == "refusal":
+                raise RuntimeError("model_refusal")
+            return step.text
+        results = []
+        for call in step.tool_calls:
+            try:
+                out = await _exec_tool(st, call.name, call.input)
+                is_err = "error" in out
+            except Exception as exc:  # tool bugs must not reach the patient
+                log.exception("tool %s failed", call.name)
+                out, is_err = {"error": "tool_failed", "detail": str(exc)[:200]}, True
+            st.tool_log.append({"tool": call.name, "input": call.input, "output": out})
+            results.append((call.id, json.dumps(out, default=str), is_err))
+        provider.add_tool_results(conv, results)
+    raise RuntimeError("too_many_tool_steps")
+
+
 async def run_agent(
     st: TurnState, history: list[dict], final_user_content: str, *, kind: str = "main",
     provider: LLMProvider | None = None, allow_tools: bool | set[str] = True,
 ) -> AgentResult:
+    backup = None if provider else get_backup_provider()
     provider = provider or get_provider()
-    conv = provider.start(SYSTEM_PROMPT, history + [{"role": "user", "content": final_user_content}])
     run = st.agent_run
-    run.kind, run.provider, run.model, run.prompt_version = kind, provider.name, provider.model, PROMPT_VERSION
+    run.kind, run.prompt_version = kind, PROMPT_VERSION
     # allow_tools: True = all tools, False = none, or a set of tool names.
     tools = [t for t in TOOLS if t.name in allow_tools] if isinstance(allow_tools, set) else (TOOLS if allow_tools else [])
     try:
-        for _ in range(MAX_TOOL_STEPS + 1):
-            step = await provider.step(conv, tools, OUTPUT_SCHEMA)
-            run.input_tokens += step.input_tokens
-            run.output_tokens += step.output_tokens
-            run.latency_ms += step.latency_ms
-            if step.stop_reason == "tool_use":
-                results = []
-                for call in step.tool_calls:
-                    try:
-                        out = await _exec_tool(st, call.name, call.input)
-                        is_err = "error" in out
-                    except Exception as exc:  # tool bugs must not reach the patient
-                        log.exception("tool %s failed", call.name)
-                        out, is_err = {"error": "tool_failed", "detail": str(exc)[:200]}, True
-                    st.tool_log.append({"tool": call.name, "input": call.input, "output": out})
-                    results.append((call.id, json.dumps(out, default=str), is_err))
-                provider.add_tool_results(conv, results)
-                continue
-            if step.stop_reason == "refusal":
-                raise RuntimeError("model_refusal")
-            data = json.loads(step.text)
-            msgs = [m.strip() for m in data.get("messages", []) if m and m.strip()][:3]
-            if not msgs:
-                raise RuntimeError("empty_reply")
-            return AgentResult(
-                messages=msgs,
-                risk_level=int(data.get("risk_level", 0)),
-                risk_reason=data.get("risk_reason", ""),
-                intents=data.get("intents", []),
-                state=st,
-            )
-        raise RuntimeError("too_many_tool_steps")
+        try:
+            text = await _agent_loop(st, provider, history, final_user_content, tools)
+        except LLMCallFailed as exc:
+            # Main provider unreachable (e.g. out of credit): answer with the backup instead of "sorry". Only before any
+            # tool has run, so nothing (like a booking) is ever done twice.
+            if backup is None or st.tool_log:
+                raise
+            log.error("LLM call failed, falling back to %s: %s", backup.name, exc)
+            try:
+                text = await _agent_loop(st, backup, history, final_user_content, tools)
+            except LLMCallFailed as exc2:
+                raise LLMCallFailed(f"{exc}; {exc2}") from exc2
+        data = json.loads(text)
+        msgs = [m.strip() for m in data.get("messages", []) if m and m.strip()][:3]
+        if not msgs:
+            raise RuntimeError("empty_reply")
+        return AgentResult(
+            messages=msgs,
+            risk_level=int(data.get("risk_level", 0)),
+            risk_reason=data.get("risk_reason", ""),
+            intents=data.get("intents", []),
+            state=st,
+        )
     except Exception as exc:
         log.exception("agent run failed")
         run.error = str(exc)[:500]

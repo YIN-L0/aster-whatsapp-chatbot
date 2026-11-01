@@ -245,6 +245,8 @@ class FakeProvider:
 
 
 _provider: LLMProvider | None = None
+_backup: LLMProvider | None = None
+_backup_set = False
 
 
 def get_provider() -> LLMProvider:
@@ -254,6 +256,20 @@ def get_provider() -> LLMProvider:
     return _provider
 
 
-def set_provider(provider: LLMProvider | None) -> None:
-    global _provider
-    _provider = provider
+def get_backup_provider() -> LLMProvider | None:
+    """The other provider, used when the main one can't be reached (no credit, bad key, outage). None if its key isn't set."""
+    global _backup, _backup_set
+    if not _backup_set:
+        s = get_settings()
+        if s.llm_fallback and s.llm_provider == "openai" and s.anthropic_api_key:
+            _backup = AnthropicProvider()
+        elif s.llm_fallback and s.llm_provider != "openai" and s.openai_api_key:
+            _backup = OpenAIProvider()
+        _backup_set = True
+    return _backup
+
+
+def set_provider(provider: LLMProvider | None, backup: LLMProvider | None = None) -> None:
+    """Tests: a set provider gets no backup unless given one, so a failing fake never reaches a real API."""
+    global _provider, _backup, _backup_set
+    _provider, _backup, _backup_set = provider, backup, provider is not None

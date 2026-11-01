@@ -200,7 +200,7 @@ async def test_offer_buttons_then_tap_to_book(channel, backend):
     offer = channel.sent[-1]
     assert offer["type"] == "buttons" and offer["buttons"][-1]["id"] == "slot:other"
     first = offer["buttons"][0]
-    assert first["id"].endswith("|claire-benson|botox") and first["title"].startswith("Book ") and len(first["title"]) <= 20
+    assert first["id"].endswith("|claire-benson|botox") and first["title"].endswith(" Claire") and len(first["title"]) <= 20
 
     slot = first["id"].removeprefix("slot:").split("|")[0]
     fake = FakeProvider([
@@ -262,3 +262,18 @@ async def test_rate_limited_request_is_retried(backend, monkeypatch):
     monkeypatch.setattr(booking.ApiBookingAdapter, "transport", httpx.MockTransport(flaky))
     assert (await booking.api_adapter()._request("GET", "/services"))[0]["code"] == "botox"
     assert len(calls) == 2
+
+
+def test_slot_buttons_prefer_different_times_and_name_the_provider():
+    from app.agent import slot_buttons
+    diane = {"doctor": "diane-mercer", "doctor_name": "Diane Mercer, FNP-BC"}
+    melissa = {"doctor": "melissa-rowe", "doctor_name": "Melissa Rowe, PA-C"}
+    slots = [{"start": "2026-10-30T09:00:00", **diane}, {"start": "2026-10-30T09:00:00", **melissa},
+             {"start": "2026-12-31T12:30:00", **melissa}]
+    titles = [b.title for b in slot_buttons(slots, "botox")]
+    assert titles == ["10/30 9AM Diane", "12/31 12:30PM", "Other times"]  # second time differs; name too long to fit
+
+    same_time = [slots[0], slots[1]]
+    titles = [b.title for b in slot_buttons(same_time, "botox")]
+    assert titles[:2] == ["10/30 9AM Diane", "10/30 9AM Melissa"]  # only option: same time, told apart by name
+    assert all(len(t) <= 20 for t in titles)

@@ -226,3 +226,43 @@ async def test_reply_time_is_recorded_and_shown_on_demo_page(channel):
         assert run.reply_ms is not None and 0 <= run.reply_ms < 5000
         page = await admin.render(db, "key")
     assert "reply time (24h, 1 replies)" in page
+
+
+class _NoCredit(FakeProvider):
+    name = "anthropic"
+
+    async def step(self, conv, tools, output_schema):
+        raise RuntimeError("Your credit balance is too low to access the Anthropic API.")
+
+
+async def test_backup_llm_answers_when_main_llm_fails(channel):
+    await onboard(channel)
+    backup = FakeProvider([reply("Botox starts at $13/unit.", intents=["service_question"])])
+    backup.name = "openai"
+    set_provider(_NoCredit([]), backup=backup)
+    await handle_inbound(inbound("How much is Botox?"))
+    assert channel.sent[-1]["text"] == "Botox starts at $13/unit."
+    async with session_scope() as db:
+        assert await db.scalar(select(Handoff)) is None
+        run = await db.scalar(select(AgentRun).where(AgentRun.kind == "main"))
+        assert run.provider == "openai" and run.error is None
+        assert "openai (backup)" in await admin.render(db, "key")
+
+
+async def test_no_backup_after_a_tool_ran(channel):
+    """If the main LLM fails after a tool already ran (e.g. a booking), the backup must not redo the turn."""
+    await onboard(channel)
+
+    class _FailsAfterTool(FakeProvider):
+        name = "anthropic"
+
+        async def step(self, conv, tools, output_schema):
+            if self.script:
+                return await super().step(conv, tools, output_schema)
+            raise RuntimeError("Connection error.")
+
+    backup = FakeProvider([reply("should not be used")])
+    set_provider(_FailsAfterTool([[{"name": "search_knowledge", "input": {"query": "botox"}}]]), backup=backup)
+    await handle_inbound(inbound("How much is Botox?"))
+    assert backup.script  # backup never called
+    assert any("trouble answering" in m["text"] for m in channel.sent if m["to"] == "15551230000")
