@@ -5,6 +5,7 @@ need and the user's constraints. A provider the user already has a link with (e.
 only wins a tie – it never pushes a better-fitting option down.
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -57,6 +58,27 @@ def neutral_options() -> dict[str, str]:
 
 def get(slug: str | None) -> dict | None:
     return catalog().get(slug) if slug else None
+
+
+_ENTRY_CODE = re.compile(r"\s*(?:\(|\[|\bref[:=]\s*)([A-Za-z][\w-]{1,15})(?:\)|\]|\b)")
+
+
+def _entry_slug(code: str) -> str | None:
+    return next((p["slug"] for p in catalog().values()
+                 if code.upper() in (c.upper() for c in p.get("entry_codes", []))), None)
+
+
+def find_entry(text: str | None) -> str | None:
+    """The provider whose entry code is in the text, e.g. "Hi Aster (ESS)" → "essence"."""
+    for m in _ENTRY_CODE.finditer(text or ""):
+        slug = _entry_slug(m.group(1))
+        if slug:
+            return slug
+    return None
+
+
+def strip_entry_codes(text: str) -> str:
+    return _ENTRY_CODE.sub(lambda m: "" if _entry_slug(m.group(1)) else m.group(0), text).strip()
 
 
 def banned_plan_terms() -> list[str]:

@@ -75,6 +75,8 @@
     align-items: center; justify-content: center; gap: 6px; }
   .buttons button:active { filter: brightness(.95); }
   .buttons button[disabled] { opacity: .55; cursor: default; }
+  .buttons button small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 2px; }
+  .quick { color: var(--muted); flex: none; align-self: center; font-size: 20px; }
   .typing { align-self: flex-start; background: var(--in); border-radius: 8px; border-top-left-radius: 0;
     padding: 10px 14px; margin-top: 6px; box-shadow: var(--shadow); display: none; }
   .typing i { display: inline-block; width: 7px; height: 7px; margin: 0 2px; border-radius: 50%; background: var(--muted);
@@ -135,7 +137,7 @@
 <div class="app">
   <header>
     <div class="avatar" aria-hidden="true">A</div>
-    <div class="who"><b>Aster · Essence</b><span id="status">online</span></div>
+    <div class="who"><b>Aster</b><span id="status">online</span></div>
     <button class="iconbtn" id="menuBtn" aria-label="Menu">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
     </button>
@@ -148,6 +150,7 @@
   <div class="typing" id="typing" aria-label="Aster is typing"><i></i><i></i><i></i></div>
 
   <footer>
+    <button class="iconbtn quick" id="quickMenu" aria-label="Aster menu" title="Menu (same as typing MENU)">☰</button>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
     </div>
@@ -163,7 +166,7 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg>
       </button>
       <div class="avatar" style="background:#d6e9f7;color:#2a6fa8" aria-hidden="true">V</div>
-      <div class="who"><b>Essence care team</b><span>Staff alerts from Aster</span></div>
+      <div class="who"><b>Care teams</b><span>Staff alerts from Aster (Essence and Aster care team)</span></div>
     </header>
     <div class="list" id="staffList"></div>
   </section>
@@ -179,14 +182,16 @@
     <h3>More</h3>
     <button class="menu-item" id="openStaff">🔔 Staff alerts (what the clinic receives)</button>
     <button class="menu-item" id="changeName">👤 Change my name</button>
-    <button class="menu-item" id="newChat">🆕 Start as a new patient</button>
+    <button class="menu-item" data-src="">🆕 New user – came to Aster directly</button>
+    <button class="menu-item" data-src="essence">🆕 New user – sent by Essence</button>
+    <button class="menu-item" data-src="helix_harvest">🆕 New user – sent by Helix &amp; Harvest</button>
   </div>
 
   <!-- name modal -->
   <div class="modal" id="nameModal" role="dialog" aria-modal="true" aria-labelledby="nameTitle">
     <form class="card" id="nameForm">
       <h2 id="nameTitle">Welcome 💛</h2>
-      <p>This is a web preview of Aster, Essence's WhatsApp recovery companion. What's your first name?</p>
+      <p>This is a web preview of Aster, an AI health &amp; longevity companion on WhatsApp. What's your first name?</p>
       <input id="nameInput" autocomplete="given-name" placeholder="First name" maxlength="40" required>
       <button class="primary" type="submit">Start chatting</button>
     </form>
@@ -207,6 +212,8 @@
   let userId = getS("aster.uid");
   if (!userId) { userId = "web" + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 1000)).padStart(3, "0"); setS("aster.uid", userId); }
   let name = getS("aster.name");
+  // Where this demo user "came from" (?src=essence on the link, or the menu): sent with messages as the entry hint.
+  let src = new URLSearchParams(location.search).get("src") || getS("aster.src") || "";
 
   const $ = id => document.getElementById(id);
   const feed = $("feed"), input = $("input"), typing = $("typing"), statusEl = $("status");
@@ -266,7 +273,8 @@
       m.buttons.forEach(b => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>${esc(b.title)}`;
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>${esc(b.title)}`
+          + (b.description ? `<small>${esc(b.description)}</small>` : "");
         btn.dataset.group = m.id;
         btn.addEventListener("click", () => {
           if (answeredButtons.has(m.id)) return;
@@ -315,7 +323,7 @@
     if (!text && !buttonId) return;
     setWaiting(true);
     try {
-      await api("/chat/api/send", { method: "POST", body: JSON.stringify({ user_id: userId, name: name || "Guest", text, button_id: buttonId || null }) });
+      await api("/chat/api/send", { method: "POST", body: JSON.stringify({ user_id: userId, name: name || "Guest", text, button_id: buttonId || null, entry: src || null }) });
     } catch (e) { setWaiting(false); statusEl.textContent = "couldn't send – check the server"; return; }
     poll();
   }
@@ -330,6 +338,7 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); submitInput(); }
   });
   $("sendBtn").addEventListener("click", submitInput);
+  $("quickMenu").addEventListener("click", () => send("MENU"));
 
   // menu
   const sheet = $("sheet"), backdrop = $("backdrop");
@@ -371,13 +380,14 @@
     modal.classList.remove("open"); input.focus();
   });
   $("changeName").addEventListener("click", () => { closeSheet(); $("nameInput").value = name || ""; modal.classList.add("open"); });
-  $("newChat").addEventListener("click", () => {
+  document.querySelectorAll("[data-src]").forEach(b => b.addEventListener("click", () => {
     closeSheet();
+    src = b.dataset.src; setS("aster.src", src);
     userId = "web" + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 1000)).padStart(3, "0");
     setS("aster.uid", userId); rendered.clear(); answeredButtons.clear(); lastDir = null; lastDay = null;
     feed.querySelectorAll(".row, .day:not(:first-child)").forEach(n => n.remove());
     $("nameInput").value = ""; modal.classList.add("open");
-  });
+  }));
 
   if (!name) modal.classList.add("open");
   poll();

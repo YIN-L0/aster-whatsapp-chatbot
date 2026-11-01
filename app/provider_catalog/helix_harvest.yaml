@@ -3,6 +3,8 @@
 slug: helix_harvest
 name: Helix & Harvest
 aliases: [Helix & Harvest, Helix and Harvest, HelixVit, HelixBlend]  # names a plan must never contain
+# Codes in a provider's QR / wa.me link text, e.g. "Hi Aster (ESS)" or "ref:ESS" (docs/COMPANION_REDESIGN.md §6.1)
+entry_codes: [HH]
 kind: Online nutrition and DNA-nutrition service
 relationship:
   type: partner

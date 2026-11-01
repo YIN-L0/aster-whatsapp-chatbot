@@ -19,7 +19,8 @@ async def open_handoff(db: AsyncSession, user_id: uuid.UUID) -> Handoff | None:
 
 
 async def create_handoff(
-    db: AsyncSession, user: User, *, reason: str, urgency: str, note: str, signals: dict | None = None
+    db: AsyncSession, user: User, *, reason: str, urgency: str, note: str, signals: dict | None = None,
+    team: str = "essence",
 ) -> Handoff:
     existing = await open_handoff(db, user.id)
     rank = {"routine": 0, "urgent": 1, "emergency": 2}
@@ -44,6 +45,7 @@ async def create_handoff(
         f"{'🚨 EMERGENCY' if urgency == 'emergency' else '⚠️ URGENT' if urgency == 'urgent' else '📋 Review'}"
         f" · Aster handoff · {'TEST USER' if user.is_test_user else ''}",
         f"Patient: {user.first_name or user.display_name or 'Unknown'} · +{user.wa_id}",
+        f"Team: {'Aster care team' if team == 'aster' else team.replace('_', ' ').title()}",
     ]
     if journey:
         proto = get_protocol(journey.treatment_slug)
@@ -74,6 +76,7 @@ async def create_handoff(
         urgency=urgency,
         summary=summary,
         risk_signals=signals,
+        team=team,
     )
     db.add(handoff)
     if urgency in ("urgent", "emergency"):

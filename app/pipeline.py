@@ -4,12 +4,12 @@ import asyncio
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, commands, journeys, outbound, safety
+from app import booking, commands, journeys, outbound, providers, router, safety
 from app.agent import AgentResult, TurnState, run_agent
 from app.channels import Button, InboundMessage
 from app.config import get_settings
@@ -22,10 +22,12 @@ from app.models import AgentRun, Checkin, JournalEntry, Message, PendingAction, 
 log = logging.getLogger(__name__)
 _locks: dict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+RETURN_GAP = timedelta(hours=12)
 WELCOME_TEXT = (
     "🌿 *Welcome to Aster!*\n\n"
-    "Hi {name}! I'm Aster, your personal AI wellness companion.\n\n"
-    "I'm here to support your wellness journey and help you stay connected with your care team.\n\n"
+    "Hi {name}! I'm Aster, your personal AI health & longevity companion.\n\n"
+    "I'm here to help you work toward your own health goals over time – and if you've had a treatment with one of "
+    "our partner clinics, to support you through your recovery.\n\n"
     "Before we get started, please review our Privacy Policy:\n{privacy_url}"
 )
 CONSENT_TEXT = (
@@ -33,6 +35,7 @@ CONSENT_TEXT = (
     "By tapping *I Agree*, you acknowledge our Privacy Policy and that:\n"
     "• Aster is an AI-powered assistant, not a healthcare professional.\n"
     "• Your messages may be processed by Aster and its authorized service providers to provide this service.\n"
+    "• Aster is independent. Partner providers (like clinics) only see your information if you choose to share it.\n"
     "• WhatsApp may not be appropriate for sharing sensitive medical information. Please avoid sharing it here. "
     "For medical concerns, contact your healthcare provider directly. In an emergency, call 911.\n\n"
     "Privacy Policy: {privacy_url}\n\n"
@@ -62,7 +65,11 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
                 user.first_name = msg.profile_name.split()[0][:40]
             db.add(user)
             await db.flush()
-        user.last_inbound_at = utcnow()
+        now = utcnow()
+        if user.onboarding_state == "active" and user.last_inbound_at and now - user.last_inbound_at > RETURN_GAP:
+            user.returned_at = now
+        user.last_inbound_at = now
+        payload = {k: v for k, v in (("button_id", msg.button_id), ("referral", msg.referral), ("entry", msg.entry)) if v}
         db.add(
             Message(
                 user_id=user.id,
@@ -70,7 +77,7 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
                 wa_message_id=msg.wa_message_id or None,
                 type=msg.type,
                 body=msg.text,
-                payload={"button_id": msg.button_id} if msg.button_id else None,
+                payload=payload or None,
                 sender="user",
             )
         )
@@ -114,6 +121,15 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         m.status = "processed"
     last = pending[-1]
     text = "\n".join(m.body for m in pending if m.body).strip()
+    returning, user.returned_at = user.returned_at is not None, None
+
+    # Where the user came from (a provider's QR / link code, an ad, web chat ?src=) is remembered before anything else.
+    slug = router.entry_from(pending)
+    if slug:
+        await router.add_link(db, user, slug, "referred", "entry_code")
+        text = providers.strip_entry_codes(text)
+    if last.type == "welcome" and user.onboarding_state != "new":
+        return  # WhatsApp's "chat opened" event – only meaningful for a brand-new user
 
     # A. Button replies are handled deterministically – the LLM never commits journey data.
     button_id = (last.payload or {}).get("button_id")
@@ -125,7 +141,10 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         elif await _handle_button(db, user, button_id):
             return
 
-    # B. Commands (STOP/START/HUMAN, #demo …)
+    # B. Menu, modes and entry choices (after consent; before it, onboarding below answers); then commands
+    if router.is_router_input(button_id, text) and user.onboarding_state == "active":
+        await router.handle(db, user, button_id, text)
+        return
     if await commands.handle(db, user, text):
         return
 
@@ -180,6 +199,9 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         await _run_main_agent(db, user, pending, text, rule, human_mode=True, received_at=last.created_at)
         return
 
+    if returning and router.GREETING.match(text):
+        await router.welcome_back(db, user)
+        return
     await _run_main_agent(db, user, pending, text, rule, received_at=last.created_at)
 
 
@@ -303,14 +325,14 @@ async def _handle_button(db: AsyncSession, user: User, button_id: str) -> bool:
         deferred = list(await db.scalars(
             select(Message).where(Message.user_id == user.id, Message.status == "deferred").order_by(Message.created_at)
         ))
-        text = "\n".join(m.body for m in deferred if m.body).strip()
-        if deferred and len(text) > 12:  # more than a greeting – answer it now
-            await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm excited to be part of your wellness "
-                                     "journey!", sender="aster_system")
+        text = providers.strip_entry_codes("\n".join(m.body for m in deferred if m.body).strip())
+        await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm glad you're here.", sender="aster_system")
+        if router.is_router_input(None, text):  # e.g. an ice breaker tapped before consent
+            await router.handle(db, user, None, text)
+        elif deferred and len(text) > 12 and not router.GREETING.match(text):  # more than a greeting – answer it now
             await _run_main_agent(db, user, deferred, text, safety.prefilter(text))
         else:
-            await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm excited to be part of your wellness "
-                                     "journey!\n\nHow can I help you today?", sender="aster_system")
+            await router.after_consent(db, user)
         for m in deferred:
             m.status = "processed"
         return True

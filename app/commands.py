@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, journeys, outbound
+from app import booking, journeys, outbound, router
 from app.config import get_settings
 from app.followups import plan_for_journey, send_checkin
 from app.handoff import create_handoff, resolve_all
@@ -70,12 +70,11 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
         await outbound.send_text(db, user, "Check-ins are back on 💛", sender="aster_system")
         return True
     if upper in ("HUMAN", "AGENT", "TALK TO A PERSON"):
-        await create_handoff(db, user, reason="user_request", urgency="routine", note="Patient asked for a person.")
-        await outbound.send_text(db, user, "Of course – I've asked the Essence team to reach out to you. You can also "
-                                           "call the clinic at (317) 555-0142.", sender="aster_system")
+        await router.request_person(db, user)
         return True
     if upper == "DELETE MY DATA":
-        await create_handoff(db, user, reason="deletion_request", urgency="routine", note="Patient requested data deletion.")
+        await create_handoff(db, user, reason="deletion_request", urgency="routine", note="Patient requested data deletion.",
+                             team=router.team_for(user))
         await outbound.send_text(db, user, "I've sent your deletion request to the team. They'll confirm once your "
                                            "data has been removed.", sender="aster_system")
         return True
@@ -118,6 +117,8 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
         if name:
             user.first_name = name.capitalize()
         user.onboarding_state, user.health_consent, user.proactive_opt_in, user.conversation_mode = "active", True, True, "ai"
+        await router.add_link(db, user, "essence", "verified", "demo_seed")
+        user.active_mode = "post_treatment"
         today = journeys.local_today(user)
         journey = await journeys.commit_journey(
             db, user,

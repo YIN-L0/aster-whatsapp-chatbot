@@ -10,7 +10,7 @@ from app import booking, journeys
 from app.channels import is_web_user
 from app.config import get_settings
 from app.handoff import open_handoff
-from app.models import Checkin, Journey, Message, User
+from app.models import Checkin, Journey, Message, ProviderLink, User
 
 HISTORY_LIMIT = 20
 
@@ -34,6 +34,8 @@ async def build_history(db: AsyncSession, user: User, exclude_ids: set) -> list[
             body = f"[tapped button: {m.body}]"
         elif m.type == "buttons":
             body = f"{m.body}\n[buttons shown: {', '.join(b['title'] for b in (m.payload or {}).get('buttons', []))}]"
+        elif m.type == "list":
+            body = f"{m.body}\n[menu shown: {', '.join(r['title'] for r in (m.payload or {}).get('rows', []))}]"
         elif m.type == "template":
             body = "[sent check-in template message]"
         if turns and turns[-1]["role"] == role:
@@ -65,6 +67,11 @@ def _missing_booking_details(user: User) -> list[str]:
     return missing
 
 
+async def _links(db: AsyncSession, user: User) -> list[str]:
+    rows = await db.scalars(select(ProviderLink).where(ProviderLink.user_id == user.id, ProviderLink.status != "declined"))
+    return [f"{link.provider_slug} ({link.status})" for link in rows]
+
+
 def _fmt_list(items: list) -> str:
     return "; ".join(str(i) for i in items) if items else "(none)"
 
@@ -78,6 +85,8 @@ async def build_context_block(
         "<context>",
         f"now_local: {now.strftime('%A %Y-%m-%d %H:%M')} ({user.timezone})",
         f"patient: first_name={user.first_name or 'unknown'}; health_consent={str(user.health_consent).lower()}",
+        f"aster: active_mode={user.active_mode or 'none'}; entry_source={user.entry_source or 'unknown'}; "
+        f"provider_links={', '.join(await _links(db, user)) or 'none'}",
         "PATIENT_DETAILS still needed before booking: needed=" + (", ".join(_missing_booking_details(user)) or "none"),
     ]
     if journey:

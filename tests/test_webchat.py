@@ -49,3 +49,18 @@ async def test_webchat_onboarding_and_reply():
         assert staff["handoffs"][0]["urgency"] == "emergency"
 
         assert (await c.post("/chat/api/send", json={"user_id": "15551234567", "text": "x"})).status_code == 400
+
+
+async def test_webchat_entry_source_and_menu_list():
+    set_channel(RoutingChannel(ConsoleChannel(echo=False)))
+    set_provider(FakeProvider([]))
+    uid = "web123456789002"
+    async with _client() as c:
+        await c.post("/chat/api/send", json={"user_id": uid, "name": "Ana", "text": "hi", "entry": "essence"})
+        await _wait_for(c, uid, lambda d: any(m["type"] == "buttons" for m in d["messages"]) and not d["pending"])
+        await c.post("/chat/api/send", json={"user_id": uid, "text": "I Agree", "button_id": "consent:yes"})
+        data = await _wait_for(c, uid, lambda d: any("Welcome from Essence" in m["body"] for m in d["messages"]))
+        await c.post("/chat/api/send", json={"user_id": uid, "text": "MENU"})
+        data = await _wait_for(c, uid, lambda d: d["messages"][-1]["type"] == "list")
+        rows = data["messages"][-1]["buttons"]
+        assert rows[1]["id"] == "mode:post_treatment" and rows[1]["description"]

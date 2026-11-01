@@ -242,6 +242,8 @@ def _bot_view(msgs: list[dict]) -> str:
     for m in msgs:
         if m["type"] == "buttons":
             parts.append(m["text"] + "\n[Buttons: " + " | ".join(b["title"] for b in m["buttons"]) + "]")
+        elif m["type"] == "list":
+            parts.append(m["text"] + "\n[Menu: " + " | ".join(r["title"] for r in m["rows"]) + "]")
         elif m["type"] == "template":
             parts.append(f"<template {m['name']} {m['params']}>")
         else:
@@ -312,7 +314,7 @@ async def simulate(key: str, max_turns: int) -> dict:
         button_id = None
         if turn.get("button"):
             for m in reversed(bot_out):
-                for b in m.get("buttons", []):
+                for b in m.get("buttons", []) + m.get("rows", []):
                     if b["title"].lower() == turn["button"].lower():
                         button_id = b["id"]
             text = turn["button"]

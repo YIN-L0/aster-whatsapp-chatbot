@@ -74,6 +74,8 @@ class User(TimestampMixin, Base):
     # Separate from proactive_opt_in (service check-ins). Only ever set by an explicit yes, never by silence.
     marketing_opt_in: Mapped[bool | None] = mapped_column(Boolean, default=False)
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when a message arrives after a long gap; cleared once that turn is processed (resume, §7)
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Message(TimestampMixin, Base):

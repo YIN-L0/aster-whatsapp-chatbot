@@ -4,6 +4,8 @@
 slug: essence
 name: Essence Aesthetics & Wellness
 aliases: [Essence]  # names a plan must never contain
+# Codes in a provider's QR / wa.me link text, e.g. "Hi Aster (ESS)" or "ref:ESS" (docs/COMPANION_REDESIGN.md §6.1)
+entry_codes: [ESS]
 kind: Med spa and wellness clinic
 relationship:
   type: partner
