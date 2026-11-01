@@ -1,0 +1,32 @@
+# FICTIONAL DEMO PROVIDER – Helix & Harvest is made up (docs/DEMO_CLIENT_HELIX_HARVEST.md). Demo prices.
+# No checkout links (decision D11): Aster shares what is offered and how to get in touch.
+slug: helix_harvest
+name: Helix & Harvest
+aliases: [Helix & Harvest, Helix and Harvest, HelixVit, HelixBlend]  # names a plan must never contain
+kind: Online nutrition and DNA-nutrition service
+relationship:
+  type: partner
+  disclosure: "Aster partners with Helix & Harvest. This is an option, not a medical recommendation."
+modes: [virtual]
+locations: [{country: US}]
+age_min: 18
+contact: {phone: "(414) 555-0187", email: hello@helixharvest.example, website: "https://www.helixharvest.example"}
+booking: contact
+services:
+  - {need: s_dietitian, label: Results review with a registered dietitian (30 min), price_text: "$39.95",
+     about: "One 1:1 video session with a registered dietitian."}
+  - {need: s_dna_coaching, label: Nutrition coaching membership, price_text: "$99/month",
+     about: "Bi-weekly 1:1 sessions with a registered dietitian, meal plans and progress tracking."}
+  - {need: s_dna_test, label: DNA nutrition report + test kit, price_text: "$179",
+     about: "At-home DNA kit and nutrition report.",
+     note: "It's optional – evidence that DNA-based diets improve weight loss is limited, and it isn't a diagnostic test."}
+  - {need: s_glp1_program, label: Steady on GLP-1 program (4 months), price_text: "$129",
+     about: "Nutrition and habit support alongside GLP-1 medication prescribed elsewhere."}
+  - {need: s_nutrient_labs, label: DNA + blood nutrient program, price_text: "$99/month",
+     about: "DNA analysis, two blood nutrient panels and coaching."}
+  - {need: s_programs, label: "Goal programs (weight loss, menopause, healthy aging)", price_text: "included in coaching",
+     about: "A coach picks the program that fits the goal."}
+  - {need: s_sports_nutrition, label: Sports nutrition coaching (partner), price_text: "from $80/session",
+     about: "Nutrition for training and recovery, through a partner coach."}
+  - {need: s_fitness, label: Fitness coaching (partner), price_text: "from $60/session", modes: [virtual],
+     about: "Strength, cardio and mobility coaching, through a partner coach."}

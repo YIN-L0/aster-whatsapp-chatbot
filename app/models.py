@@ -7,7 +7,7 @@ Raw data (messages), structured data (journeys, journal, symptoms) and AI reason
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy import DateTime as _DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -67,6 +67,12 @@ class User(TimestampMixin, Base):
     health_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     proactive_opt_in: Mapped[bool] = mapped_column(Boolean, default=True)
     is_test_user: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Where the user came from: essence | helix_harvest | direct | unknown (docs/COMPANION_REDESIGN.md §6.1)
+    entry_source: Mapped[str | None] = mapped_column(String(32), default="unknown")
+    # none | companion | post_treatment – which module the chat is in; progress lives in its own tables
+    active_mode: Mapped[str | None] = mapped_column(String(16), default="none")
+    # Separate from proactive_opt_in (service check-ins). Only ever set by an explicit yes, never by silence.
+    marketing_opt_in: Mapped[bool | None] = mapped_column(Boolean, default=False)
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -103,6 +109,7 @@ class Journey(TimestampMixin, Base):
     protocol_version: Mapped[str | None] = mapped_column(String(80))
     visibility: Mapped[str] = mapped_column(String(16), default="private")
     source: Mapped[str] = mapped_column(String(24), default="user_reported")  # user_reported|demo_seed
+    provider_slug: Mapped[str | None] = mapped_column(String(32), default="essence")  # NULL in old rows = essence
 
 
 class PendingAction(TimestampMixin, Base):
@@ -183,6 +190,7 @@ class Appointment(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(16), default="demo_mock")
     service: Mapped[str | None] = mapped_column(String(64))
     external_ref: Mapped[str | None] = mapped_column(String(64))  # the booking backend's appointment ref
+    provider_slug: Mapped[str | None] = mapped_column(String(32), default="essence")
 
 
 class Handoff(TimestampMixin, Base):
@@ -198,6 +206,7 @@ class Handoff(TimestampMixin, Base):
     risk_signals: Mapped[dict | None] = mapped_column(JSON)
     notified: Mapped[bool] = mapped_column(Boolean, default=False)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    team: Mapped[str | None] = mapped_column(String(32), default="essence")  # essence | aster | <provider slug>
 
 
 class AgentRun(TimestampMixin, Base):
@@ -220,3 +229,102 @@ class AgentRun(TimestampMixin, Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     reply_ms: Mapped[int | None] = mapped_column(Integer)  # patient's message received → first reply sent
     error: Mapped[str | None] = mapped_column(Text)
+
+
+# ---------- companion (docs/COMPANION_REDESIGN.md §6–7) ----------
+
+
+class ProviderLink(TimestampMixin, Base):
+    """The user's relationship with a provider. Being an Essence client is a link, not a kind of user."""
+
+    __tablename__ = "provider_links"
+    __table_args__ = (UniqueConstraint("user_id", "provider_slug"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider_slug: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16))  # referred | self_reported | verified | declined
+    source: Mapped[str] = mapped_column(String(24))  # entry_code | user_button | record_lookup
+    records_consent: Mapped[bool] = mapped_column(Boolean, default=False)  # may Aster look up this provider's records
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProfileFact(TimestampMixin, Base):
+    """Long-term profile: one row per answer. The current value has superseded_at = NULL; older rows are history."""
+
+    __tablename__ = "profile_facts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(48))  # a slot in app/assessment_rules/companion.yaml
+    value: Mapped[dict] = mapped_column(JSON)
+    source: Mapped[str] = mapped_column(String(24), default="user")  # user | provider_record
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    source_message_ids: Mapped[list | None] = mapped_column(JSON)
+
+
+class UserGoal(TimestampMixin, Base):
+    __tablename__ = "user_goals"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(32))  # a goal in companion.yaml
+    label_raw: Mapped[str | None] = mapped_column(String(200))  # the user's own words
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | achieved | dropped
+    is_focus: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class CompanionAssessment(TimestampMixin, Base):
+    """Progress only – the answers themselves are ProfileFacts, so they're reused and never asked twice."""
+
+    __tablename__ = "companion_assessments"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    goal: Mapped[str] = mapped_column(String(32))
+    # in_progress | paused | plan_active | abandoned
+    status: Mapped[str] = mapped_column(String(16), default="in_progress")
+    current_slot: Mapped[str | None] = mapped_column(String(48))
+    asked_slots: Mapped[list] = mapped_column(JSON, default=list)
+    skipped_slots: Mapped[list] = mapped_column(JSON, default=list)
+    intro_shown: Mapped[bool] = mapped_column(Boolean, default=False)
+    rules_version: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Plan(TimestampMixin, Base):
+    """A personal plan. Never contains providers, products or prices (app.companion.validate_plan)."""
+
+    __tablename__ = "plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    assessment_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    goal: Mapped[str] = mapped_column(String(32))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | superseded
+    confidence: Mapped[str] = mapped_column(String(16))  # preliminary | standard
+    # situation_summary, priorities, daily_habits, weekly_habits, metrics, limitations
+    content: Mapped[dict] = mapped_column(JSON)
+    review_after: Mapped[date | None] = mapped_column(Date)
+    based_on: Mapped[list | None] = mapped_column(JSON)  # profile fact ids
+    rules_version: Mapped[str | None] = mapped_column(String(64))
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class ReferralOffer(TimestampMixin, Base):
+    """Every time Aster offers or shows provider options. A decline blocks new offers for that need for a while."""
+
+    __tablename__ = "referral_offers"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    need: Mapped[str] = mapped_column(String(32))  # a need code in app/providers.py
+    # offered | accepted | declined | options_shown | contact_shared
+    status: Mapped[str] = mapped_column(String(16))
+    providers_shown: Mapped[list | None] = mapped_column(JSON)
+    source_mode: Mapped[str | None] = mapped_column(String(16))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

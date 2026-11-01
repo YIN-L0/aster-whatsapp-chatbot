@@ -197,7 +197,7 @@ not_started ─intro (why + what you'll get, "skip anytime")─▶ in_progress �
 
 | Level | Rule (for the focus goal) | Behaviour |
 |---|---|---|
-| `blocked` | safety screen unanswered or red flag / special population needing a person | no plan; general guidance + handoff |
+| `blocked` | GI red flag, or under 13 | no plan; the safety reply + handoff |
 | `not_ready` | no goal, or < 40 % of core slots *known* | keep exploring; if the user asks for a plan anyway → preliminary plan with explicit limitations |
 | `preliminary` | ≥ 40 % core known | agent may offer a first plan; plan marked "first version" + lists what's missing |
 | `ready` | every core slot known **or explicitly skipped**, and ≥ 50 % supporting known | agent offers the full plan |
@@ -362,4 +362,6 @@ These override anything above that says otherwise.
 | D11 | Purchases | **No checkout links.** Every provider gives information plus contact details or its booking link; Essence keeps in-chat booking. The Helix catalog's `kind: buy/subscribe` items are shown as "available from Helix & Harvest" with contact details |
 
 Effect on §9: the MVP goals list is replaced by D9; §6.3 slots exist only for the weight/nutrition/gut goals plus
-the shared `goal` slot.
+the shared `goal` slot. Because of D10, family history is not a slot (stored only if volunteered), and diet-plan
+examples don't mention medication. Under 18, pregnancy or a nutrition concern don't block the plan: the engine already
+drops BMI categories, calorie targets and weight-loss advice, and the plan carries the YAML caution note.

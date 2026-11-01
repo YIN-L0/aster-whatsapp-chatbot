@@ -1,0 +1,136 @@
+# DRAFT FOR DEMO ONLY – pending clinical review. Not medical advice.
+# The companion assessment (docs/COMPANION_REDESIGN.md §6.3): goals pick slots, code picks the next slot,
+# the LLM phrases the question. Slot values are checked against app/assessment_rules/weight_gut.yaml.
+version: companion@draft-1
+
+readiness:
+  preliminary_core_ratio: 0.4  # share of core slots known before a first plan is offered
+  ready_supporting_ratio: 0.5  # share of supporting slots known (with every core slot resolved) for a full plan
+
+# Slots: one piece of information each. `step` and `fields` are where the weight_gut engine reads it.
+# ttl_days: after this the answer is confirmed again rather than trusted (0 = never goes stale).
+# No medical-history slots (decision D10): conditions, medication, pregnancy and family history are never asked.
+slots:
+  body_measures:
+    label: height and weight
+    step: a1_q1
+    fields: [weight_kg, height_cm]
+    ttl_days: 90
+    purpose: "Height and weight let me estimate how much energy your body uses and put your goal in context. BMI is only a rough guide."
+    ask_hint: "Ask for height and weight in whatever units they use."
+    examples: ["5'6\", 165 lb", "170 cm, 72 kg"]
+  age:
+    label: age
+    step: a1_q1
+    fields: [age, age_band]
+    ttl_days: 365
+    purpose: "Energy needs change with age."
+    ask_hint: "Ask for their age; a range is fine."
+    examples: ["42", "in my 30s"]
+  sex:
+    label: sex
+    step: a1_q1
+    fields: [sex]
+    ttl_days: 0
+    skippable_hint: true
+    purpose: "It shifts the energy estimate a little. Happy to skip it."
+    ask_hint: "Ask, and say they can skip it."
+    examples: ["female", "male", "rather not say"]
+  exercise:
+    label: weekly activity
+    step: a1_q2
+    fields: [activities]
+    ttl_days: 30
+    purpose: "How you move in a normal week shapes both the energy estimate and which habit is worth building next."
+    ask_hint: "Ask what activity they do in a typical week, how often and for how long."
+    examples: ["Walk 30 min most days, gym twice a week", "Nothing regular right now"]
+  meals:
+    label: a typical day of eating
+    step: a1_q3
+    fields: [meals_per_day, foods, diet_flags]
+    ttl_days: 30
+    purpose: "A typical day of food is the single most useful thing for spotting easy wins."
+    ask_hint: "Ask them to walk you through a typical day of eating and drinking, roughly."
+    examples: ["Coffee, a sandwich at lunch, pasta for dinner, chips in the evening", "3 meals, eat out a lot"]
+  diet_plan:
+    label: current eating plan
+    step: a2_q1
+    fields: [diet_plans, eating_patterns, glp1]
+    ttl_days: 60
+    purpose: "Knowing what you're already trying lets me build on it instead of starting over."
+    ask_hint: "Ask whether they follow any eating plan or pattern, and how it's going."
+    examples: ["Trying intermittent fasting", "Mostly plant-based", "No particular plan"]
+  gut_symptoms:
+    label: digestive symptoms
+    step: a2_q2
+    fields: [gi_symptoms]
+    ttl_days: 30
+    purpose: "Digestive symptoms change which foods and habits to try first, and a few signs mean a doctor should take a look."
+    ask_hint: "Ask whether they notice any digestive symptoms (bloating, reflux, changes in bowel habits) and how often."
+    examples: ["Bloated most evenings", "Nothing really"]
+
+# Goals. structured: true → slots + plan (weight_gut engine goals). structured: false → Aster talks about it with
+# general guidance and remembers the goal, but there is no structured assessment or plan yet (decision D9).
+goals:
+  lose_weight:
+    label: Lose weight
+    structured: true
+    core: [body_measures, age, exercise, meals]
+    supporting: [sex, diet_plan, gut_symptoms]
+    metrics:
+      - "Weight once a week, same day and time"
+      - "Days this week with vegetables at two or more meals"
+      - "Active minutes this week"
+  build_muscle:
+    label: Build muscle
+    structured: true
+    core: [body_measures, exercise, meals]
+    supporting: [age, sex, diet_plan]
+    metrics:
+      - "Strength sessions this week"
+      - "Meals with a palm-size protein portion each day"
+      - "A main lift or rep count, every 2 weeks"
+  maintain:
+    label: Keep a healthy weight
+    structured: true
+    core: [body_measures, exercise, meals]
+    supporting: [age, sex, diet_plan]
+    metrics:
+      - "Weight every 2 weeks"
+      - "Active minutes this week"
+  body_shape:
+    label: Change body shape
+    structured: true
+    core: [body_measures, exercise, meals]
+    supporting: [age, sex, diet_plan]
+    metrics:
+      - "Waist measurement every 2 weeks"
+      - "Strength sessions this week"
+  gut_health:
+    label: Better digestion
+    structured: true
+    core: [gut_symptoms, meals]
+    supporting: [diet_plan, exercise, body_measures]
+    metrics:
+      - "Symptom days this week (a simple food and symptom diary)"
+      - "Fruit and vegetable servings a day"
+      - "Glasses of water a day"
+  general:
+    label: Eat healthier
+    structured: true
+    core: [meals, exercise]
+    supporting: [body_measures, age, diet_plan, gut_symptoms]
+    metrics:
+      - "Fruit and vegetable servings a day"
+      - "Home-cooked meals this week"
+  sleep: {label: Sleep better, structured: false}
+  stress: {label: Manage stress, structured: false}
+  energy: {label: More energy, structured: false}
+  fitness: {label: Get fitter, structured: false}
+  healthy_aging: {label: Healthy aging and longevity, structured: false}
+  skin: {label: Skin and appearance, structured: false}
+  other: {label: Something else, structured: false}
+
+plan:
+  max_priorities: 3
+  review_days: [7, 90]  # allowed range for review_in_days
