@@ -87,18 +87,21 @@ def prefilter(text: str) -> RuleResult:
     return result
 
 
-def emergency_reply(first_name: str | None, clinic_phone: str, hits: list[str]) -> str:
+def emergency_reply(first_name: str | None, clinic_phone: str | None, hits: list[str]) -> str:
+    """clinic_phone: the clinic treating them (Essence), or None when the Aster care team is alerted instead."""
     name = f"{first_name}, w" if first_name else "W"
     if "self_harm" in hits:
         return (
             f"{name}hat you're feeling matters, and you don't have to go through it alone. "
             "Please call or text 988 (Suicide & Crisis Lifeline) now, or call 911 if you're in immediate danger.\n\n"
-            "I've let the clinic team know so a person can reach out to you."
+            + ("I've let the clinic team know so a person can reach out to you." if clinic_phone else
+               "I've let the Aster care team know so a person can reach out to you.")
         )
     return (
         f"{name}hat you're describing needs urgent medical attention. "
         "Please call 911 or go to the nearest emergency room now — don't wait for an appointment.\n\n"
-        f"I've alerted the Essence team. If you can, also call the clinic at {clinic_phone}."
+        + (f"I've alerted the Essence team. If you can, also call the clinic at {clinic_phone}." if clinic_phone else
+           "I've alerted the Aster care team.")
     )
 
 
@@ -107,10 +110,30 @@ HUMAN_MODE_ACK = (
     "If anything feels urgent or gets worse, please call 911 or go to the nearest emergency room."
 )
 
+HUMAN_MODE_ACK_ASTER = (
+    "Thanks — the Aster care team has your message and will be in touch. "
+    "If anything feels urgent or gets worse, please call 911 or go to the nearest emergency room."
+)
+
+FALLBACK_REPLY_ASTER = (
+    "Sorry, I'm having trouble answering that right now. I've asked the Aster care team to follow up with you. "
+    "If you feel unwell or something is getting worse, please contact your doctor, or call 911 in an emergency."
+)
+
 FALLBACK_REPLY = (
     "Sorry, I'm having trouble answering that right now. I've asked the Essence team to follow up with you. "
     "If you feel unwell or something is getting worse, please call the clinic at (317) 555-0142, or 911 in an emergency."
 )
+
+
+
+def fallback_reply(team: str) -> str:
+    return FALLBACK_REPLY if team == "essence" else FALLBACK_REPLY_ASTER
+
+
+def human_mode_ack(team: str) -> str:
+    return HUMAN_MODE_ACK if team == "essence" else HUMAN_MODE_ACK_ASTER
+
 
 # ---------- post-check on agent output ----------
 

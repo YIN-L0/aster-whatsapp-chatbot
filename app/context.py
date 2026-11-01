@@ -10,7 +10,7 @@ from app import booking, journeys
 from app.channels import is_web_user
 from app.config import get_settings
 from app.handoff import open_handoff
-from app.models import Checkin, Journey, Message, ProviderLink, User
+from app.models import Checkin, Journey, Message, Plan, ProviderLink, User, UserGoal
 
 HISTORY_LIMIT = 20
 
@@ -77,7 +77,8 @@ def _fmt_list(items: list) -> str:
 
 
 async def build_context_block(
-    db: AsyncSession, user: User, journey: Journey | None, checkin: Checkin | None, rule_negated: list[str]
+    db: AsyncSession, user: User, journey: Journey | None, checkin: Checkin | None, rule_negated: list[str],
+    returning: bool = False,
 ) -> str:
     tz = ZoneInfo(user.timezone)
     now = datetime.now(tz)
@@ -87,8 +88,45 @@ async def build_context_block(
         f"patient: first_name={user.first_name or 'unknown'}; health_consent={str(user.health_consent).lower()}",
         f"aster: active_mode={user.active_mode or 'none'}; entry_source={user.entry_source or 'unknown'}; "
         f"provider_links={', '.join(await _links(db, user)) or 'none'}",
-        "PATIENT_DETAILS still needed before booking: needed=" + (", ".join(_missing_booking_details(user)) or "none"),
     ]
+    if returning:
+        lines.append("RETURNING: this is their first message after a long break – a short welcome back fits, then "
+                     "answer what they wrote.")
+    lines.append(await mode_block(db, user, journey, checkin))
+    handoff = await open_handoff(db, user.id)
+    if handoff:
+        lines.append(f"OPEN HANDOFF: {handoff.urgency} ({handoff.reason}) – the team has already been alerted")
+    if rule_negated:
+        lines.append(f"SAFETY NOTE: patient mentioned but appeared to deny: {', '.join(rule_negated)}")
+    lines.append("</context>")
+    return "\n".join(lines)
+
+
+async def mode_block(db: AsyncSession, user: User, journey: Journey | None, checkin: Checkin | None) -> str:
+    """What the active mode needs. Recovery details only in post_treatment, so the companion stays about the user."""
+    if user.active_mode == "post_treatment":
+        return await _post_treatment_block(db, user, journey, checkin)
+    tz = ZoneInfo(user.timezone)
+    lines = ["COMPANION:"]
+    goals = list(await db.scalars(select(UserGoal).where(UserGoal.user_id == user.id, UserGoal.status == "active")))
+    lines.append("  goals: " + (_fmt_list([f"{g.code}{' (focus)' if g.is_focus else ''}"
+                                          + (f" – \"{g.label_raw}\"" if g.label_raw else "") for g in goals])))
+    plan = await db.scalar(select(Plan).where(Plan.user_id == user.id, Plan.status == "active")
+                           .order_by(Plan.version.desc()))
+    lines.append(f"  plan: {f'{plan.goal} v{plan.version} from {plan.created_at:%Y-%m-%d}' if plan else 'none yet'}")
+    if journey:
+        lines.append(f"  essence treatment on file: {journey.treatment_label_raw} on {journey.treatment_date} "
+                     f"(Day {journeys.day_post_treatment(user, journey)}) – details are in post_treatment mode")
+    appts = await booking.upcoming_appointments(db, user.id)
+    if appts:
+        lines.append("  upcoming Essence visits: " + "; ".join(
+            f"{a.purpose} {booking.fmt_slot(a.starts_at.astimezone(tz))}" for a in appts))
+    return "\n".join(lines)
+
+
+async def _post_treatment_block(db: AsyncSession, user: User, journey: Journey | None, checkin: Checkin | None) -> str:
+    tz = ZoneInfo(user.timezone)
+    lines = ["PATIENT_DETAILS still needed before booking: needed=" + (", ".join(_missing_booking_details(user)) or "none")]
     if journey:
         proto = journeys.get_protocol(journey.treatment_slug)
         day = journeys.day_post_treatment(user, journey)
@@ -131,10 +169,4 @@ async def build_context_block(
     if appts:
         lines.append("UPCOMING APPOINTMENTS: " + "; ".join(
             f"{a.purpose} {booking.fmt_slot(a.starts_at.astimezone(tz))}" for a in appts))
-    handoff = await open_handoff(db, user.id)
-    if handoff:
-        lines.append(f"OPEN HANDOFF: {handoff.urgency} ({handoff.reason}) – the team has already been alerted")
-    if rule_negated:
-        lines.append(f"SAFETY NOTE: patient mentioned but appeared to deny: {', '.join(rule_negated)}")
-    lines.append("</context>")
     return "\n".join(lines)

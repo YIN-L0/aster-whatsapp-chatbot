@@ -22,10 +22,13 @@ async def _user(wa_id="15551230000") -> User:
 
 
 async def onboard(channel):
+    """An Essence client in treatment mode – the starting point for the Module 1 flows below."""
     set_provider(FakeProvider([]))
     await handle_inbound(inbound("hi"))
     assert channel.sent[-1]["type"] == "buttons"
     await handle_inbound(inbound("I Agree", button_id="consent:yes"))
+    await handle_inbound(inbound("Yes, Essence client", button_id="entry:essence"))
+    await handle_inbound(inbound("My treatment", button_id="mode:post_treatment"))
 
 
 async def test_onboarding_then_journey_confirmed_by_button(channel):

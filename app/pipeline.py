@@ -94,7 +94,8 @@ async def process_user(user_id: uuid.UUID) -> None:
             async with session_scope() as db:
                 user = await db.get(User, user_id)
                 if user:
-                    await outbound.send_text(db, user, safety.FALLBACK_REPLY, sender="aster_system")
+                    await outbound.send_text(db, user, safety.fallback_reply(router.team_for(user)),
+                                             sender="aster_system")
 
 
 async def handle_inbound(msg: InboundMessage) -> None:
@@ -160,12 +161,14 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     # C. Safety rules run before anything else, including onboarding.
     rule = safety.prefilter(text)
     if rule.level >= 4:
+        team = router.team_for(user, await journeys.get_primary_journey(db, user.id))
         await outbound.send_text(
-            db, user, safety.emergency_reply(user.first_name, "(317) 555-0142", rule.hits), sender="aster_system"
+            db, user, safety.emergency_reply(user.first_name, "(317) 555-0142" if team == "essence" else None, rule.hits),
+            sender="aster_system",
         )
         await create_handoff(
             db, user, reason="risk_l4", urgency="emergency",
-            note=f"Emergency phrases detected: {', '.join(rule.hits)}", signals={"rules": rule.hits},
+            note=f"Emergency phrases detected: {', '.join(rule.hits)}", signals={"rules": rule.hits}, team=team,
         )
         db.add(AgentRun(user_id=user.id, kind="rule_emergency", provider="rules", model="-", prompt_version="-",
                         risk_rule=4, risk_final=4, output={"hits": rule.hits}))
@@ -202,7 +205,7 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     if returning and router.GREETING.match(text):
         await router.welcome_back(db, user)
         return
-    await _run_main_agent(db, user, pending, text, rule, received_at=last.created_at)
+    await _run_main_agent(db, user, pending, text, rule, received_at=last.created_at, returning=returning)
 
 
 HUMAN_MODE_CONTEXT = (
@@ -217,10 +220,12 @@ HUMAN_MODE_CONTEXT = (
 
 async def _run_main_agent(
     db: AsyncSession, user: User, pending: list[Message], text: str, rule, human_mode: bool = False,
-    received_at: datetime | None = None,
+    received_at: datetime | None = None, returning: bool = False,
 ) -> None:
     journey = await journeys.get_primary_journey(db, user.id)
     checkin = await active_checkin(db, user)
+    if checkin and checkin.kind == "recovery":
+        user.active_mode = "post_treatment"  # they're answering a recovery check-in
     run = AgentRun(user_id=user.id, kind="main", provider="", model="", prompt_version="", risk_rule=rule.level)
     db.add(run)
     await db.flush()
@@ -228,18 +233,20 @@ async def _run_main_agent(
                    source_message_ids=[str(m.id) for m in pending])
 
     history = await build_history(db, user, exclude_ids={m.id for m in pending})
-    ctx = await build_context_block(db, user, journey, checkin, rule.negated_hits)
+    ctx = await build_context_block(db, user, journey, checkin, rule.negated_hits, returning)
     if human_mode:
         ctx = f"{ctx}\n{HUMAN_MODE_CONTEXT}"
     final = f"{ctx}\n\n<patient_message>\n{text}\n</patient_message>"
     result = await run_agent(st, history, final, allow_tools={"search_knowledge", "record_recovery_update"} if human_mode else True)
 
+    team = router.team_for(user, journey)
     if result.error and human_mode:
-        await outbound.send_text(db, user, safety.HUMAN_MODE_ACK, sender="aster_system")
+        await outbound.send_text(db, user, safety.human_mode_ack(team), sender="aster_system")
         return
     if result.error:
-        await outbound.send_text(db, user, safety.FALLBACK_REPLY, sender="aster_system")
-        await create_handoff(db, user, reason="bot_failure", urgency="routine", note=f"Agent error: {result.error[:200]}")
+        await outbound.send_text(db, user, safety.fallback_reply(team), sender="aster_system")
+        await create_handoff(db, user, reason="bot_failure", urgency="routine", note=f"Agent error: {result.error[:200]}",
+                             team=team)
         return
 
     # Post-check, one regeneration with feedback, then a conservative fallback.
@@ -256,11 +263,11 @@ async def _run_main_agent(
         retry = await run_agent(st, retry_history, fix, allow_tools=False)
         if retry.error or safety.postcheck("\n".join(retry.messages), booked_this_turn=st.booked,
                                           has_appointment=has_appt):
-            result.messages = [safety.FALLBACK_REPLY]
+            result.messages = [safety.fallback_reply(team)]
             violations.append("fallback_used")
             # FALLBACK_REPLY says the team will follow up, so make sure someone is asked to.
             await create_handoff(db, user, reason="bot_failure", urgency="routine",
-                                 note=f"Reply blocked by safety post-check ({', '.join(violations)})")
+                                 note=f"Reply blocked by safety post-check ({', '.join(violations)})", team=team)
         else:
             result.messages, result.risk_level = retry.messages, max(result.risk_level, retry.risk_level)
     await _finish_turn(db, user, run, result, violations, received_at)
@@ -277,6 +284,7 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
     rank = {None: -1, "routine": 0, "urgent": 1, "emergency": 2}
     if risk >= 2 and rank[st.handoff_urgency] < rank[URGENCY_FOR_RISK[min(risk, 4)]]:
         await create_handoff(db, user, reason=f"risk_l{risk}", urgency=URGENCY_FOR_RISK[min(risk, 4)],
+                             team=router.team_for(user, st.journey),
                              note=result.risk_reason or "auto-created from risk level", signals={"source": "risk_merge"})
     for entry_id in st.recorded_entry_ids:
         entry = await db.get(JournalEntry, entry_id)
@@ -299,6 +307,16 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
         if st.booked and buttons[0].id.startswith("slot:"):
             continue  # booked in this turn – the time buttons are stale
         await outbound.send_buttons(db, user, body, buttons)
+    await _maybe_invite_to_companion(db, user, st.journey, result, risk)
+
+
+async def _maybe_invite_to_companion(db: AsyncSession, user: User, journey, result: AgentResult, risk: int) -> None:
+    """Module 1 → 2: once per journey, after a calm check-in wrap-up, offer the companion. Never during a concern."""
+    if ("checkin_wrap_up" not in result.intents or journey is None or journey.companion_invited_at or risk >= 2
+            or result.state.after_reply_buttons or await router.open_assessment(db, user)):
+        return
+    journey.companion_invited_at = utcnow()
+    await outbound.send_buttons(db, user, router.COMPANION_INVITE, router.INVITE_BUTTONS)
 
 
 def _slot_button_text(button_id: str, title: str) -> str:

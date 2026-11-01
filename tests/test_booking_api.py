@@ -196,7 +196,7 @@ async def test_offer_buttons_then_tap_to_book(channel, backend):
         reply("Botox starts at $13/unit. Claire's next opening is tomorrow at 3:30 PM – want me to book it?",
               intents=["service_question", "booking"]),
     ]))
-    await handle_inbound(inbound("How much is Botox?"))
+    await handle_inbound(inbound("Can I book Botox?"))  # booking is offered on request, not after a price question
     offer = channel.sent[-1]
     assert offer["type"] == "buttons" and offer["buttons"][-1]["id"] == "slot:other"
     first = offer["buttons"][0]

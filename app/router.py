@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.handoff import create_handoff
 from app.models import CompanionAssessment, Message, Plan, ProviderLink, User
 
-PREFIXES = ("entry:", "menu:", "mode:")
+PREFIXES = ("entry:", "menu:", "mode:", "invite:")
 MENU_WORDS = {"MENU", "HOME", "SWITCH", "/MENU"}
 SLASH = {"/companion": "mode:companion", "/aftercare": "mode:post_treatment", "/treatment": "mode:post_treatment",
          "/plan": "menu:plan", "/services": "menu:services", "/human": "menu:human", "/privacy": "menu:privacy"}
@@ -196,8 +196,13 @@ async def send_plan(db: AsyncSession, user: User) -> None:
     await outbound.send_text(db, user, "\n\n".join(p for p in parts if p), sender="aster_system")
 
 
-def team_for(user: User) -> str:
-    return "essence" if user.active_mode == "post_treatment" else "aster"
+def team_for(user: User, journey=None) -> str:
+    """Who gets a handoff: the clinic for treatment matters (or a treatment in the last 30 days), else Aster's team."""
+    if user.active_mode == "post_treatment":
+        return "essence"
+    if journey is not None and journey.status == "active" and journeys.day_post_treatment(user, journey) <= 30:
+        return "essence"
+    return "aster"
 
 
 async def request_person(db: AsyncSession, user: User) -> None:
@@ -239,11 +244,18 @@ async def handle(db: AsyncSession, user: User, button_id: str | None, text: str)
                                  "options if they fit what you need.", sender="aster_system")
     elif action == "menu:human":
         await request_person(db, user)
+    elif action == "invite:no":
+        await outbound.send_text(db, user, "No problem – it's in the menu whenever you'd like it.", sender="aster_system")
     elif action == "menu:privacy":
         await outbound.send_text(db, user, PRIVACY_TEXT.format(url=get_settings().privacy_policy_url),
                                  sender="aster_system")
     else:
         await send_menu(db, user)
+
+
+COMPANION_INVITE = ("One more thing: besides your recovery, I can also help with your own health goals – nutrition, "
+                    "sleep, energy, movement – whenever you like. Want to take a look?")
+INVITE_BUTTONS = [Button("mode:companion", "Sure, show me"), Button("invite:no", "Not now")]
 
 
 async def welcome_back(db: AsyncSession, user: User) -> None:

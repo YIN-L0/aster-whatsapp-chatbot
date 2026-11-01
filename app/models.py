@@ -112,6 +112,8 @@ class Journey(TimestampMixin, Base):
     visibility: Mapped[str] = mapped_column(String(16), default="private")
     source: Mapped[str] = mapped_column(String(24), default="user_reported")  # user_reported|demo_seed
     provider_slug: Mapped[str | None] = mapped_column(String(32), default="essence")  # NULL in old rows = essence
+    # The one-time "I can also help with your health goals" offer after a check-in wrap-up (Module 1 → 2)
+    companion_invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PendingAction(TimestampMixin, Base):
