@@ -215,3 +215,23 @@ async def test_short_gap_hi_goes_to_the_agent(channel):
     set_provider(FakeProvider([reply("Hi again!")]))
     await handle_inbound(inbound("hi"))
     assert channel.sent[-1]["text"] == "Hi again!"
+
+
+async def test_users_from_before_the_companion_keep_treatment_support():
+    from datetime import date
+
+    from app import router
+    from app.models import Journey
+
+    async with session_scope() as db:
+        old = User(wa_id="15550009999", onboarding_state="active", entry_source=None)
+        new = User(wa_id="15550008888", onboarding_state="active")
+        db.add_all([old, new])
+        await db.flush()
+        db.add(Journey(user_id=old.id, treatment_slug="neuromodulator", treatment_label_raw="Botox",
+                       treatment_date=date(2026, 10, 1)))
+        await db.flush()
+        assert await router.backfill_essence_links(db) == 1
+        assert await router.backfill_essence_links(db) == 0  # idempotent
+        assert old.entry_source == "essence"
+    assert await _links() == {"essence": "verified"}

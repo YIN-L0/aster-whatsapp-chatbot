@@ -15,7 +15,7 @@ from app.channels import Button, ListRow
 from app.companion import goal_spec
 from app.config import get_settings
 from app.handoff import create_handoff
-from app.models import Handoff, Message, Plan, ProviderLink, ReferralOffer, User, utcnow
+from app.models import Appointment, Handoff, Journey, Message, Plan, ProviderLink, ReferralOffer, User, utcnow
 
 PREFIXES = ("entry:", "menu:", "mode:", "invite:", "ref:")  # ref:yes is turned into text for the agent first
 MENU_WORDS = {"MENU", "HOME", "SWITCH", "/MENU"}
@@ -87,6 +87,20 @@ async def add_link(db: AsyncSession, user: User, slug: str, status: str, source:
     if user.entry_source in (None, "unknown", "skipped"):
         user.entry_source = slug
     await db.flush()
+
+
+async def backfill_essence_links(db: AsyncSession) -> int:
+    """Users from before the companion (Essence-only) era have journeys or bookings but no provider link.
+    Give them one at startup so they keep treatment support. Idempotent."""
+    linked = select(ProviderLink.user_id).where(ProviderLink.provider_slug == "essence")
+    ids = set(await db.scalars(select(Journey.user_id).where(Journey.user_id.not_in(linked))))
+    ids |= set(await db.scalars(select(Appointment.user_id).where(Appointment.user_id.not_in(linked))))
+    for user in await db.scalars(select(User).where(User.id.in_(ids))) if ids else []:
+        db.add(ProviderLink(user_id=user.id, provider_slug="essence", status="verified", source="legacy"))
+        if user.entry_source in (None, "unknown"):
+            user.entry_source = "essence"
+    await db.flush()
+    return len(ids)
 
 
 async def after_consent(db: AsyncSession, user: User) -> None:
