@@ -7,13 +7,13 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, journeys, outbound
+from app import booking, journeys, outbound, router
 from app.config import get_settings
 from app.followups import plan_for_journey, send_checkin
 from app.handoff import create_handoff, resolve_all
 from app.models import (
-    AgentRun, Appointment, Checkin, Handoff, JournalEntry, Journey, Message, PendingAction,
-    SymptomObservation, User, utcnow,
+    AgentRun, Appointment, Checkin, CompanionAssessment, Handoff, JournalEntry, Journey, Message, PendingAction,
+    Plan, ProfileFact, ProviderLink, ReferralOffer, SymptomObservation, User, UserGoal, utcnow,
 )
 
 DEMO_SCENARIOS = {
@@ -40,7 +40,8 @@ async def wipe_user_data(db: AsyncSession, user: User, keep_messages: bool = Fal
     jids = list(await db.scalars(select(Journey.id).where(Journey.user_id == user.id)))
     if jids:
         await db.execute(delete(SymptomObservation).where(SymptomObservation.journey_id.in_(jids)))
-    for model in (JournalEntry, Checkin, Appointment, Handoff, PendingAction, AgentRun, Journey):
+    for model in (JournalEntry, Checkin, Appointment, Handoff, PendingAction, AgentRun, Journey,
+                  ProfileFact, UserGoal, CompanionAssessment, Plan, ReferralOffer, ProviderLink):
         await db.execute(delete(model).where(model.user_id == user.id))
     if not keep_messages:
         await db.execute(delete(Message).where(Message.user_id == user.id))
@@ -69,12 +70,11 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
         await outbound.send_text(db, user, "Check-ins are back on 💛", sender="aster_system")
         return True
     if upper in ("HUMAN", "AGENT", "TALK TO A PERSON"):
-        await create_handoff(db, user, reason="user_request", urgency="routine", note="Patient asked for a person.")
-        await outbound.send_text(db, user, "Of course – I've asked the Essence team to reach out to you. You can also "
-                                           "call the clinic at (317) 555-0142.", sender="aster_system")
+        await router.request_person(db, user)
         return True
     if upper == "DELETE MY DATA":
-        await create_handoff(db, user, reason="deletion_request", urgency="routine", note="Patient requested data deletion.")
+        await create_handoff(db, user, reason="deletion_request", urgency="routine", note="Patient requested data deletion.",
+                             team=router.team_for(user))
         await outbound.send_text(db, user, "I've sent your deletion request to the team. They'll confirm once your "
                                            "data has been removed.", sender="aster_system")
         return True
@@ -92,6 +92,7 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
     if cmd == "#reset":
         await wipe_user_data(db, user)
         user.onboarding_state, user.health_consent, user.conversation_mode = "new", False, "ai"
+        user.entry_source, user.active_mode, user.marketing_opt_in = "unknown", "none", False
         await outbound.send_text(db, user, "🧹 Demo data deleted. Send any message to start again.", sender="aster_system")
         return True
 
@@ -116,6 +117,8 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
         if name:
             user.first_name = name.capitalize()
         user.onboarding_state, user.health_consent, user.proactive_opt_in, user.conversation_mode = "active", True, True, "ai"
+        await router.add_link(db, user, "essence", "verified", "demo_seed")
+        user.active_mode = "post_treatment"
         today = journeys.local_today(user)
         journey = await journeys.commit_journey(
             db, user,

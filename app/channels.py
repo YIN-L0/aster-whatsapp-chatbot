@@ -20,13 +20,22 @@ class Button:
 
 
 @dataclass
+class ListRow:
+    id: str
+    title: str  # WhatsApp limit: 24 chars
+    description: str = ""  # WhatsApp limit: 72 chars
+
+
+@dataclass
 class InboundMessage:
     wa_id: str
     wa_message_id: str
-    type: str  # text | button_reply | media | unsupported
+    type: str  # text | button_reply | media | welcome | unsupported
     text: str
     profile_name: str | None = None
     button_id: str | None = None
+    referral: str | None = None  # click-to-WhatsApp ad: headline, body and source URL
+    entry: str | None = None  # web chat ?src= (a provider slug)
 
 
 @dataclass
@@ -40,6 +49,8 @@ class Channel(Protocol):
     async def send_text(self, to: str, text: str) -> SendResult: ...
 
     async def send_buttons(self, to: str, body: str, buttons: list[Button]) -> SendResult: ...
+
+    async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult: ...
 
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult: ...
 
@@ -90,6 +101,24 @@ class WhatsAppChannel:
             }
         )
 
+    async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult:
+        return await self._post(
+            {
+                "to": to,
+                "type": "interactive",
+                "interactive": {
+                    "type": "list",
+                    "body": {"text": body[:4096]},
+                    "action": {
+                        "button": button[:20],
+                        "sections": [{"title": "Aster", "rows": [
+                            {"id": r.id, "title": r.title[:24], "description": r.description[:72]} for r in rows[:10]
+                        ]}],
+                    },
+                },
+            }
+        )
+
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         template: dict = {"name": name, "language": {"code": self._lang}}
         if params:
@@ -130,6 +159,13 @@ class ConsoleChannel:
             print(f"\n🌸 Aster → {to}:\n{body}\n{opts}\n")
         return SendResult(ok=True)
 
+    async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult:
+        self.sent.append({"to": to, "type": "list", "text": body, "button": button, "rows": [r.__dict__ for r in rows]})
+        if self.echo:
+            opts = "\n".join(f"  [{i + 1}] {r.title} – {r.description}" for i, r in enumerate(rows))
+            print(f"\n🌸 Aster → {to}:\n{body}\n{opts}\n")
+        return SendResult(ok=True)
+
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         self.sent.append({"to": to, "type": "template", "name": name, "params": params})
         if self.echo:
@@ -156,6 +192,9 @@ class WebChannel:
     async def send_buttons(self, to: str, body: str, buttons: list[Button]) -> SendResult:
         return SendResult(ok=True)
 
+    async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult:
+        return SendResult(ok=True)
+
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         return SendResult(ok=True)
 
@@ -178,6 +217,9 @@ class RoutingChannel:
 
     async def send_buttons(self, to: str, body: str, buttons: list[Button]) -> SendResult:
         return await self._for(to).send_buttons(to, body, buttons)
+
+    async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult:
+        return await self._for(to).send_list(to, body, button, rows)
 
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         return await self._for(to).send_template(to, name, params)
@@ -239,8 +281,12 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
                     button_id = m.get("button", {}).get("payload")
                 elif mtype in ("image", "audio", "video", "document", "sticker"):
                     kind = "media"
+                elif mtype == "request_welcome":  # the user opened the chat for the first time
+                    kind = "welcome"
                 elif mtype == "reaction":
                     continue
+                ref = m.get("referral") or {}  # set when the chat was opened from a click-to-WhatsApp ad
+                referral = " ".join(str(ref.get(k, "")) for k in ("headline", "body", "source_url")).strip()
                 messages.append(
                     InboundMessage(
                         wa_id=wa_id,
@@ -249,6 +295,7 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
                         text=text,
                         profile_name=names.get(wa_id),
                         button_id=button_id,
+                        referral=referral or None,
                     )
                 )
             statuses.extend(value.get("statuses", []))

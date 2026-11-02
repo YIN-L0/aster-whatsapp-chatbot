@@ -67,6 +67,8 @@ async def send_checkin(db: AsyncSession, user: User, checkin: Checkin) -> bool:
     if not user.proactive_opt_in or user.conversation_mode == "paused":
         checkin.status = "cancelled"
         return False
+    if checkin.kind == "recovery":
+        user.active_mode = "post_treatment"  # the check-in is the topic; other progress is kept
     if checkin.kind == "appointment_reminder":
         appt = await db.get(Appointment, checkin.appointment_id)
         if not appt or appt.status != "confirmed":

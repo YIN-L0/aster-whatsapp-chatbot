@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.channels import Button, get_channel, is_web_user
+from app.channels import Button, ListRow, get_channel, is_web_user
 from app.config import get_settings
 from app.models import Message, User
 
@@ -66,6 +66,26 @@ async def send_buttons(db: AsyncSession, user: User, body: str, buttons: list[Bu
             type="buttons",
             body=body,
             payload={"buttons": [b.__dict__ for b in buttons], **(payload or {})},
+            sender="aster_system",
+            status="processed",
+            delivery_status="sent" if result.ok else "failed",
+        )
+    )
+    return result.ok
+
+
+async def send_list(db: AsyncSession, user: User, body: str, button: str, rows: list[ListRow]) -> bool:
+    if not in_service_window(user):
+        return False
+    result = await get_channel().send_list(user.wa_id, body, button, rows)
+    db.add(
+        Message(
+            user_id=user.id,
+            direction="out",
+            wa_message_id=result.wa_message_id,
+            type="list",
+            body=body,
+            payload={"button": button, "rows": [r.__dict__ for r in rows]},
             sender="aster_system",
             status="processed",
             delivery_status="sent" if result.ok else "failed",

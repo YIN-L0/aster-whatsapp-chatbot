@@ -3,7 +3,8 @@
     .venv/bin/python -m scripts.simulate            # as patient +15550000001
     .venv/bin/python -m scripts.simulate --as 15550000002 --name Emily
 
-Type a number to tap a button from the last button message. Type /quit to exit.
+Type a number to tap a button (or menu row) from the last button or menu message. Type /quit to exit.
+--src essence | helix_harvest starts as a user sent by that provider (like web chat ?src=).
 Uses the LLM configured in .env (LLM_PROVIDER, ANTHROPIC_API_KEY / OPENAI_API_KEY).
 """
 
@@ -25,6 +26,7 @@ async def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--as", dest="wa_id", default="15550000001")
     p.add_argument("--name", default="Sarah")
+    p.add_argument("--src", default=None, help="provider slug the user came from, e.g. essence")
     args = p.parse_args()
 
     channel = ConsoleChannel()
@@ -40,11 +42,12 @@ async def main() -> None:
         if text.strip() == "/quit":
             break
         button = None
-        last_buttons = next((m for m in reversed(channel.sent) if m["type"] == "buttons"), None)
-        if text.strip().isdigit() and last_buttons:
+        last = next((m for m in reversed(channel.sent) if m["type"] in ("buttons", "list")), None)
+        options = (last or {}).get("buttons") or (last or {}).get("rows") or []
+        if text.strip().isdigit() and options:
             idx = int(text.strip()) - 1
-            if 0 <= idx < len(last_buttons["buttons"]):
-                button = last_buttons["buttons"][idx]
+            if 0 <= idx < len(options):
+                button = options[idx]
         msg = InboundMessage(
             wa_id=args.wa_id,
             wa_message_id=f"sim-{os.getpid()}-{next(counter)}",
@@ -52,6 +55,7 @@ async def main() -> None:
             text=button["title"] if button else text,
             profile_name=args.name,
             button_id=button["id"] if button else None,
+            entry=args.src,
         )
         await handle_inbound(msg)
         from app.db import session_scope

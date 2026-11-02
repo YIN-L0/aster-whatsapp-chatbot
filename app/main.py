@@ -6,7 +6,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from sqlalchemy import text, update
 
-from app import admin, booking, webchat
+from app import admin, booking, router, webchat
 from app.channels import get_channel, parse_webhook, verify_signature
 from app.config import get_settings
 from app.db import init_db, session_scope
@@ -21,6 +21,10 @@ log = logging.getLogger("aster")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with session_scope() as db:
+        n = await router.backfill_essence_links(db)
+        if n:
+            log.info("linked %s existing Essence users", n)
     stop = asyncio.Event()
     task = asyncio.create_task(scheduler_loop(stop))
     asyncio.create_task(_warm_booking_catalog())

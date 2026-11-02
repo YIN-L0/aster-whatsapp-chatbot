@@ -39,6 +39,7 @@ class SendIn(BaseModel):
     name: str = Field(default="Guest", max_length=40)
     text: str = Field(default="", max_length=2000)
     button_id: str | None = Field(default=None, max_length=100)
+    entry: str | None = Field(default=None, max_length=32)  # ?src= on the chat link, e.g. essence
 
 
 @router.get("", response_class=HTMLResponse)
@@ -60,6 +61,7 @@ async def send(body: SendIn, background: BackgroundTasks, x_demo_key: str | None
         text=body.text.strip(),
         profile_name=body.name.strip() or "Guest",
         button_id=body.button_id,
+        entry=body.entry,
     )
     uid = await ingest(msg)
     if uid:
@@ -91,7 +93,8 @@ async def messages(user_id: str = Query(...), x_demo_key: str | None = Header(de
                     "dir": m.direction,
                     "type": m.type,
                     "body": m.body,
-                    "buttons": (m.payload or {}).get("buttons", []) if m.type == "buttons" else [],
+                    "buttons": (m.payload or {}).get("buttons", []) if m.type == "buttons"
+                    else (m.payload or {}).get("rows", []) if m.type == "list" else [],
                     "at": m.created_at.isoformat(),
                 }
             )

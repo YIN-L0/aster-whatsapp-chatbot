@@ -8,9 +8,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import journeys
+import json
+
+from app import companion, journeys, memory
+from app.config import get_settings
 from app.models import (
-    AgentRun, Appointment, Checkin, Handoff, JournalEntry, Message, SymptomObservation, User, utcnow,
+    AgentRun, Appointment, Checkin, Handoff, JournalEntry, Message, Plan, ProviderLink, ReferralOffer,
+    SymptomObservation, User, utcnow,
 )
 
 RISK = {0: ("Routine", "r0"), 1: ("Expected", "r1"), 2: ("Review", "r2"), 3: ("Urgent", "r3"), 4: ("Emergency", "r4")}
@@ -60,8 +64,10 @@ async def render(db: AsyncSession, key: str) -> str:
                         for h in handoffs)
         runs = list(await db.scalars(select(AgentRun).where(AgentRun.user_id == u.id)
                                      .order_by(AgentRun.created_at.desc()).limit(8)))
+        main_llm = get_settings().llm_provider
         rhtml = "".join(
-            f"<tr><td>{_t(r.created_at, tz)}</td><td>{r.kind}</td><td><span class='pill {RISK[r.risk_final][1]}'>"
+            f"<tr><td>{_t(r.created_at, tz)}</td><td>{r.kind}"
+            f"{' · <b>' + escape(r.provider) + ' (backup)</b>' if r.provider and r.provider != main_llm else ''}</td><td><span class='pill {RISK[r.risk_final][1]}'>"
             f"{RISK[r.risk_final][0]}</span></td><td>{escape(', '.join(t['tool'] for t in (r.tool_calls or [])))}</td>"
             f"<td>{_secs(r.reply_ms)}</td><td>{_secs(r.latency_ms)}</td>"
             f"<td>{escape(', '.join(r.postcheck_violations or []))}</td></tr>" for r in runs
@@ -70,12 +76,14 @@ async def render(db: AsyncSession, key: str) -> str:
                                      .order_by(Message.created_at.desc()).limit(300)))
         mhtml = "".join(f"<div class='msg {m.direction}'>{escape(m.body)}<span class=muted> · {_t(m.created_at, tz)}"
                         f"</span></div>" for m in msgs)  # newest first; column-reverse shows it at the bottom
+        companion_html = await _companion(db, u, tz)
         cards.append(
             f"<section class=card><h3>{escape(u.first_name or u.display_name or 'Unknown')} "
             f"{'<span class=muted>(' + escape(u.full_name) + (', born ' + u.birth_date if u.birth_date else '') + ')</span> ' if u.full_name else ''}"
-            f"<span class=muted>+{u.wa_id[:-4]}•••• · mode: {u.conversation_mode} · onboarding: {u.onboarding_state} · consent: {u.health_consent} "
+            f"<span class=muted>+{u.wa_id[:-4]}•••• · module: {u.active_mode or 'none'} · handled by: "
+            f"{'staff' if u.conversation_mode == 'human' else u.conversation_mode} · onboarding: {u.onboarding_state} · consent: {u.health_consent} "
             f"· check-ins: {'on' if u.proactive_opt_in else 'off'}</span></h3>"
-            f"<div class=grid><div><h5>Treatment journeys</h5>{''.join(jhtml) or '<p class=muted>None</p>'}"
+            f"<div class=grid><div>{companion_html}<h5>Treatment journeys (Essence)</h5>{''.join(jhtml) or '<p class=muted>None</p>'}"
             f"<h5>Check-ins & reminders</h5><ul>{chtml or '<li class=muted>None</li>'}</ul>"
             f"<h5>Appointments</h5><ul>{ahtml or '<li class=muted>None</li>'}</ul>"
             f"<h5>Handoffs to staff</h5>{hhtml or '<p class=muted>None</p>'}"
@@ -85,6 +93,41 @@ async def render(db: AsyncSession, key: str) -> str:
         )
     return (PAGE.replace("{{SPEED}}", await _reply_speed(db))
             .replace("{{CARDS}}", "".join(cards) or "<p class=muted>No conversations yet.</p>"))
+
+
+async def _companion(db: AsyncSession, u: User, tz) -> str:
+    """Module 2 and 3 data: where the user came from, goals, profile, assessment, plan and referrals."""
+    links = list(await db.scalars(select(ProviderLink).where(ProviderLink.user_id == u.id)))
+    goals = await memory.goals(db, u)
+    facts = await memory.load_facts(db, u)
+    a = await memory.current_assessment(db, u)
+    plans = list(await db.scalars(select(Plan).where(Plan.user_id == u.id).order_by(Plan.version.desc())))
+    offers = list(await db.scalars(select(ReferralOffer).where(ReferralOffer.user_id == u.id)
+                                   .order_by(ReferralOffer.created_at.desc()).limit(10)))
+    head = (f"<p>Entry: <b>{escape(u.entry_source or 'unknown')}</b> · links: "
+            + (", ".join(f"{escape(x.provider_slug)} ({x.status})" for x in links) or "none")
+            + f" · marketing opt-in: {bool(u.marketing_opt_in)}</p>")
+    ghtml = ", ".join(f"{'<b>' if g.is_focus else ''}{escape(g.code)}{'</b>' if g.is_focus else ''}"
+                      + (f" <span class=muted>“{escape(g.label_raw)}”</span>" if g.label_raw else "") for g in goals)
+    fhtml = "".join(f"<tr><td>{escape(k)}</td><td>{escape(json.dumps(f.value))}</td><td>{_t(f.recorded_at, tz)}</td></tr>"
+                    for k, f in facts.items())
+    ahtml = ""
+    if a:
+        r = companion.readiness(a.goal, facts, set(a.skipped_slots), utcnow())
+        nxt = companion.next_slot(a.goal, facts, set(a.skipped_slots), utcnow())
+        ahtml = (f"<p>Assessment: <b>{escape(a.goal)}</b> · {a.status} · readiness <b>{r['level']}</b> "
+                 f"(core {r.get('core_known', 0)}/{r.get('core_total', 0)}) · next: {escape(nxt['slot']) if nxt else '–'}"
+                 f" · skipped: {escape(', '.join(a.skipped_slots) or '–')}</p>")
+    from app.router import format_plan
+
+    phtml = "".join(f"<details{' open' if p.status == 'active' else ''}><summary>v{p.version} · {p.status} · "
+                    f"{p.confidence}</summary><pre>{escape(format_plan(p))}</pre></details>" for p in plans)
+    ohtml = "".join(f"<li>{_t(o.created_at, tz)} · {escape(o.need)} · <b>{o.status}</b>"
+                    f"{' · ' + escape(', '.join(o.providers_shown)) if o.providers_shown else ''}</li>" for o in offers)
+    return (f"<h5>Aster companion</h5>{head}<p>Goals: {ghtml or '<span class=muted>none</span>'}</p>"
+            + (f"<table><tr><th>Profile</th><th>Value</th><th>Recorded</th></tr>{fhtml}</table>" if fhtml else "")
+            + ahtml + (f"<h5>Plans</h5>{phtml}" if phtml else "")
+            + (f"<h5>Referrals</h5><ul>{ohtml}</ul>" if ohtml else ""))
 
 
 def _secs(ms: int | None) -> str:

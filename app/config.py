@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # LLM
     llm_provider: str = "anthropic"  # anthropic | openai
+    llm_fallback: bool = True  # if the main provider's API call fails, answer with the other one (when its key is set)
     anthropic_model: str = "claude-opus-5-5"
     anthropic_effort: str = "low"  # low | medium | high; empty = model default
     anthropic_speed: str = "fast"  # "fast" = fast mode (Opus only, ~2x price)

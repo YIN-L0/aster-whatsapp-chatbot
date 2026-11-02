@@ -1,0 +1,31 @@
+# Demo provider. Facts from app/knowledge_content (reviewed website content); prices only where the site gives them.
+# Need codes: the generic service codes in app/assessment_rules/weight_gut.yaml `services` plus the ones in
+# app/providers.py NEEDS. Adding a provider = adding a file like this one; no code or prompt changes.
+slug: essence
+name: Essence Aesthetics & Wellness
+aliases: [Essence]  # names a plan must never contain
+# Codes in a provider's QR / wa.me link text, e.g. "Hi Aster (ESS)" or "ref:ESS" (docs/COMPANION_REDESIGN.md §6.1)
+entry_codes: [ESS]
+kind: Med spa and wellness clinic
+relationship:
+  type: partner
+  disclosure: "Aster partners with Essence Aesthetics & Wellness. This is an option, not a medical recommendation."
+modes: [in_person]
+locations: [{city: Indianapolis, state: IN}]
+age_min: 18
+contact: {phone: "(317) 555-0142", email: care@essence-wellness.example, booking_url: "https://www.essence-wellness.example/book"}
+booking: in_chat  # in_chat (Aster can book) | contact (contact details only)
+services:
+  - {need: s_medical_weight, label: Medically managed weight program, price_text: "discussed at the consultation", consult_first: true,
+     about: "Consultation, labs and a personalized plan; medication decisions are made by the clinic's providers."}
+  - {need: s_medspa, label: Body contouring consultation, price_text: "see the clinic", consult_first: true,
+     about: "Non-surgical body contouring and skin tightening options."}
+  - {need: s_skin_care, label: Skin treatments (facials, peels, microneedling, lasers), price_text: "starting prices on the website",
+     about: "Facials, chemical peels, microneedling and laser treatments."}
+  - {need: s_injectables, label: Injectables (wrinkle relaxers, fillers), price_text: "starting prices on the website",
+     about: "Wrinkle relaxers, dermal fillers and collagen stimulators."}
+  - {need: s_hair, label: Hair restoration, price_text: "see the clinic", about: "Hair restoration treatments."}
+  - {need: s_iv_therapy, label: IV drips and vitamin injections, price_text: "starting prices on the website",
+     about: "IV hydration and vitamin injections."}
+  - {need: s_hormone_health, label: Women's and men's health consultations, price_text: "see the clinic", consult_first: true,
+     about: "Hormone and wellness consultations with the clinic's providers."}

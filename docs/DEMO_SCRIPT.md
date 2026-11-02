@@ -11,14 +11,61 @@
 - [ ] Demo Console open and logged in
 - [ ] Backup: `python -m scripts.simulate` works on the laptop in case Wi-Fi or Meta has problems
 
-Patient lines below are taken from `example.docx`. Aster's replies are generated live, so the wording will differ
-slightly each time.
+Aster's replies are generated live, so the wording will differ slightly each time. Part A shows Aster as an
+independent health & longevity companion; Part B shows the Essence post-treatment support it also offers
+(patient lines from `example.docx`). In the web chat, ⋮ → "New user – …" starts each part with the right entry.
+
+> Opening line: *Aster is the person's own long-term health companion. Essence and Helix & Harvest are partners it
+> can connect them to when they want – not the point of the conversation.*
 
 ---
 
+# Part A — Aster as a companion
+
+## A1. A direct user and their own goal (4 min)
+1. `#reset`, send **Hi!** → welcome + privacy + consent → **I Agree**
+2. "Have you had care or treatment at Essence?" → **No, my health goals** → companion intro + goal list
+3. Tap **Lose weight** → Aster explains why it will ask a few questions (any can be skipped) and asks the first one,
+   with example answers
+4. Answer naturally, e.g. **5'10 and about 210 lbs** → **38** → **skip that one** → a typical day of food
+   → after each answer: one specific reaction, then the next question (never a form)
+5. **Can you just give me a plan now?** → a first-version plan: priorities, daily and weekly habits, what to track,
+   a review date, and what's still unknown. No products, no providers.
+6. **My knees hurt with long walks, can you change that?** → version 2
+7. Console: entry source, profile facts, assessment progress, both plan versions
+
+> Talking point: plan readiness depends on whether Aster knows enough about *this* goal, not on a question count.
+> Plans never contain products – that's checked in code.
+
+## A2. Leaving and coming back (1 min)
+- Mid-assessment, type **MENU** → **Treatment care & visits** is offered only to Essence clients; **Continue my
+  assessment** is at the top. Switch modes and back: nothing is lost.
+- The next day (or after 12 h), **hi** → "Welcome back… want to pick up where we left off?"
+
+## A3. When the user wants a professional (3 min)
+1. **I've tried every diet and nothing sticks, I think I need someone to guide me** → neutral advice first; Aster may
+   ask once "Would you like some options?" with buttons
+2. **No thanks** → it carries on helping and won't offer again for 30 days (Console → Referrals)
+3. In a new chat: **Can you recommend a dietitian? I live in Columbus, Ohio** → neutral advice, Helix & Harvest
+   (online) and "a local RD, often covered by insurance"; the partner disclosure is added automatically
+4. As an Essence client in Indianapolis: **Who could help me lose weight with medical support?** → Essence first
+   (already a client, same fit) plus "your primary care doctor"; prices and how to start only after interest;
+   "Share my summary" sends only what's shown on the button
+
+> Talking point: providers appear only when the person asks or says yes. An existing relationship only breaks ties.
+
+## A4. Safety in the companion (1 min)
+**I want help with my digestion. I've had blood in my stool a few times this week.** → urgent handoff to the Aster
+care team, no plan, no assessment questions – raised by the rules in code, whatever the AI thinks.
+
+---
+
+# Part B — Essence post-treatment support
+
 ## 0. Onboarding + clinic questions (2 min)
-1. `#reset`, then send: **Hi!** → welcome + privacy link + consent buttons → tap **I Agree**
-2. **How much is Botox?** → starting prices for Botox/Dysport, taken from the website
+1. `#reset`, then send: **Hi!** → welcome + privacy link + consent buttons → tap **I Agree** → **Yes, Essence client**
+   → **My treatment** (or open the web chat via ⋮ → "New user – sent by Essence")
+2. **How much is Botox?** → starting prices for Botox/Dysport, taken from the website – and no booking push
 3. **Do you do CoolSculpting?** → it doesn't make anything up: CoolSculpting isn't listed; it mentions truSculpt iD / Ignite RF
 4. **Where are you located and how do I book?** → address and Vagaro link
 
@@ -73,7 +120,9 @@ slightly each time.
 
 ## 6. Close (1 min)
 - `#status` shows what Aster remembers for this patient.
-- Demo Console: everything is structured data (journeys, symptom timeline, risk levels, handoffs). Nothing lives only in the chat.
+- Demo Console: everything is structured data (journeys, symptom timeline, risk levels, handoffs; for the companion:
+  profile, assessment, plans, referrals). Nothing lives only in the chat.
+- After a calm check-in wrap-up, Aster offers the companion once ("…I can also help with your own health goals").
 - Next steps: the clinic signs off protocols and red flags; staff alert channel and SLA; Vagaro integration; compliance review before real patients.
 
 ---
@@ -86,3 +135,6 @@ slightly each time.
 | Patient data | Simulated only | Real patients only after privacy/HIPAA review |
 | WhatsApp number | Meta test number ("Test Number") | Clinic's verified business number + approved templates |
 | Staff alerts | WhatsApp to one staff number | Clinic's chosen channel, on-call rota, SLA |
+| Helix & Harvest | Fictional provider, fake contacts | Real partner agreements and referral terms |
+| Companion rules (`companion.yaml`, `weight_gut.yaml`) | Drafts | Clinical review before real users |
+| WhatsApp `/` commands and ice breakers | `scripts/setup_whatsapp_commands.py` (dry run by default) | Applied to the business number |

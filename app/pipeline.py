@@ -4,12 +4,12 @@ import asyncio
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, commands, journeys, outbound, safety
+from app import booking, commands, journeys, memory, outbound, providers, referral, router, safety
 from app.agent import AgentResult, TurnState, run_agent
 from app.channels import Button, InboundMessage
 from app.config import get_settings
@@ -17,15 +17,17 @@ from app.context import build_context_block, build_history
 from app.db import session_scope
 from app.followups import active_checkin, plan_for_journey
 from app.handoff import URGENCY_FOR_RISK, create_handoff, open_handoff
-from app.models import AgentRun, Checkin, JournalEntry, Message, PendingAction, User, utcnow
+from app.models import AgentRun, Checkin, JournalEntry, Message, PendingAction, ReferralOffer, User, utcnow
 
 log = logging.getLogger(__name__)
 _locks: dict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+RETURN_GAP = timedelta(hours=12)
 WELCOME_TEXT = (
     "🌿 *Welcome to Aster!*\n\n"
-    "Hi {name}! I'm Aster, your personal AI wellness companion.\n\n"
-    "I'm here to support your wellness journey and help you stay connected with your care team.\n\n"
+    "Hi {name}! I'm Aster, your personal AI health & longevity companion.\n\n"
+    "I'm here to help you work toward your own health goals over time – and if you've had a treatment with one of "
+    "our partner clinics, to support you through your recovery.\n\n"
     "Before we get started, please review our Privacy Policy:\n{privacy_url}"
 )
 CONSENT_TEXT = (
@@ -33,6 +35,7 @@ CONSENT_TEXT = (
     "By tapping *I Agree*, you acknowledge our Privacy Policy and that:\n"
     "• Aster is an AI-powered assistant, not a healthcare professional.\n"
     "• Your messages may be processed by Aster and its authorized service providers to provide this service.\n"
+    "• Aster is independent. Partner providers (like clinics) only see your information if you choose to share it.\n"
     "• WhatsApp may not be appropriate for sharing sensitive medical information. Please avoid sharing it here. "
     "For medical concerns, contact your healthcare provider directly. In an emergency, call 911.\n\n"
     "Privacy Policy: {privacy_url}\n\n"
@@ -62,7 +65,11 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
                 user.first_name = msg.profile_name.split()[0][:40]
             db.add(user)
             await db.flush()
-        user.last_inbound_at = utcnow()
+        now = utcnow()
+        if user.onboarding_state == "active" and user.last_inbound_at and now - user.last_inbound_at > RETURN_GAP:
+            user.returned_at = now
+        user.last_inbound_at = now
+        payload = {k: v for k, v in (("button_id", msg.button_id), ("referral", msg.referral), ("entry", msg.entry)) if v}
         db.add(
             Message(
                 user_id=user.id,
@@ -70,7 +77,7 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
                 wa_message_id=msg.wa_message_id or None,
                 type=msg.type,
                 body=msg.text,
-                payload={"button_id": msg.button_id} if msg.button_id else None,
+                payload=payload or None,
                 sender="user",
             )
         )
@@ -87,7 +94,8 @@ async def process_user(user_id: uuid.UUID) -> None:
             async with session_scope() as db:
                 user = await db.get(User, user_id)
                 if user:
-                    await outbound.send_text(db, user, safety.FALLBACK_REPLY, sender="aster_system")
+                    await outbound.send_text(db, user, safety.fallback_reply(router.team_for(user)),
+                                             sender="aster_system")
 
 
 async def handle_inbound(msg: InboundMessage) -> None:
@@ -114,18 +122,40 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         m.status = "processed"
     last = pending[-1]
     text = "\n".join(m.body for m in pending if m.body).strip()
+    returning, user.returned_at = user.returned_at is not None, None
+
+    # Where the user came from (a provider's QR / link code, an ad, web chat ?src=) is remembered before anything else.
+    slug = router.entry_from(pending)
+    if slug:
+        await router.add_link(db, user, slug, "referred", "entry_code")
+        text = providers.strip_entry_codes(text)
+    if last.type == "welcome" and user.onboarding_state != "new":
+        return  # WhatsApp's "chat opened" event – only meaningful for a brand-new user
 
     # A. Button replies are handled deterministically – the LLM never commits journey data.
     button_id = (last.payload or {}).get("button_id")
     if button_id:
-        if button_id.startswith("slot:"):
+        if button_id.startswith("ref:yes:"):
+            # "Yes, show options": the agent shows them (find_services), now that the user accepted
+            need = await router.accept_offer(db, user, button_id.removeprefix("ref:yes:"))
+            last.body = f"Yes, show me some options [accepted options for need={need}]" if need else last.body
+            text = "\n".join(m.body for m in pending if m.body).strip()
+            button_id = None
+        elif button_id.startswith("goal:"):
+            # A goal picked from the list: the agent records it (set_goal) and starts the conversation
+            last.body = f"My goal: {last.body} [goal={button_id.removeprefix('goal:')}]"
+            text = "\n".join(m.body for m in pending if m.body).strip()
+        elif button_id.startswith("slot:"):
             # A booking time button: the agent books it (it may still need the patient's name and date of birth)
             last.body = _slot_button_text(button_id, last.body)
             text = "\n".join(m.body for m in pending if m.body).strip()
         elif await _handle_button(db, user, button_id):
             return
 
-    # B. Commands (STOP/START/HUMAN, #demo …)
+    # B. Menu, modes and entry choices (after consent; before it, onboarding below answers); then commands
+    if router.is_router_input(button_id, text) and user.onboarding_state == "active":
+        await router.handle(db, user, button_id, text)
+        return
     if await commands.handle(db, user, text):
         return
 
@@ -141,12 +171,14 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     # C. Safety rules run before anything else, including onboarding.
     rule = safety.prefilter(text)
     if rule.level >= 4:
+        team = router.team_for(user, await journeys.get_primary_journey(db, user.id))
         await outbound.send_text(
-            db, user, safety.emergency_reply(user.first_name, "(317) 555-0142", rule.hits), sender="aster_system"
+            db, user, safety.emergency_reply(user.first_name, "(317) 555-0142" if team == "essence" else None, rule.hits),
+            sender="aster_system",
         )
         await create_handoff(
             db, user, reason="risk_l4", urgency="emergency",
-            note=f"Emergency phrases detected: {', '.join(rule.hits)}", signals={"rules": rule.hits},
+            note=f"Emergency phrases detected: {', '.join(rule.hits)}", signals={"rules": rule.hits}, team=team,
         )
         db.add(AgentRun(user_id=user.id, kind="rule_emergency", provider="rules", model="-", prompt_version="-",
                         risk_rule=4, risk_final=4, output={"hits": rule.hits}))
@@ -180,7 +212,10 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         await _run_main_agent(db, user, pending, text, rule, human_mode=True, received_at=last.created_at)
         return
 
-    await _run_main_agent(db, user, pending, text, rule, received_at=last.created_at)
+    if returning and router.GREETING.match(text):
+        await router.welcome_back(db, user)
+        return
+    await _run_main_agent(db, user, pending, text, rule, received_at=last.created_at, returning=returning)
 
 
 HUMAN_MODE_CONTEXT = (
@@ -195,34 +230,43 @@ HUMAN_MODE_CONTEXT = (
 
 async def _run_main_agent(
     db: AsyncSession, user: User, pending: list[Message], text: str, rule, human_mode: bool = False,
-    received_at: datetime | None = None,
+    received_at: datetime | None = None, returning: bool = False,
 ) -> None:
     journey = await journeys.get_primary_journey(db, user.id)
     checkin = await active_checkin(db, user)
+    if checkin and checkin.kind == "recovery":
+        if user.mode_chosen_at and checkin.sent_at and user.mode_chosen_at > checkin.sent_at:
+            checkin = None  # they picked another topic after the check-in arrived; it stays open for later
+        else:
+            user.active_mode = "post_treatment"  # they're answering a recovery check-in
     run = AgentRun(user_id=user.id, kind="main", provider="", model="", prompt_version="", risk_rule=rule.level)
     db.add(run)
     await db.flush()
     st = TurnState(db=db, user=user, journey=journey, checkin=checkin, agent_run=run,
-                   source_message_ids=[str(m.id) for m in pending])
+                   source_message_ids=[str(m.id) for m in pending], user_text=text)
 
     history = await build_history(db, user, exclude_ids={m.id for m in pending})
-    ctx = await build_context_block(db, user, journey, checkin, rule.negated_hits)
+    ctx = await build_context_block(db, user, journey, checkin, rule.negated_hits, returning)
     if human_mode:
         ctx = f"{ctx}\n{HUMAN_MODE_CONTEXT}"
     final = f"{ctx}\n\n<patient_message>\n{text}\n</patient_message>"
     result = await run_agent(st, history, final, allow_tools={"search_knowledge", "record_recovery_update"} if human_mode else True)
 
+    team = router.team_for(user, journey)
     if result.error and human_mode:
-        await outbound.send_text(db, user, safety.HUMAN_MODE_ACK, sender="aster_system")
+        await outbound.send_text(db, user, safety.human_mode_ack(team), sender="aster_system")
         return
     if result.error:
-        await outbound.send_text(db, user, safety.FALLBACK_REPLY, sender="aster_system")
-        await create_handoff(db, user, reason="bot_failure", urgency="routine", note=f"Agent error: {result.error[:200]}")
+        await outbound.send_text(db, user, safety.fallback_reply(team), sender="aster_system")
+        await create_handoff(db, user, reason="bot_failure", urgency="routine", note=f"Agent error: {result.error[:200]}",
+                             team=team)
         return
 
     # Post-check, one regeneration with feedback, then a conservative fallback.
     has_appt = bool(await booking.upcoming_appointments(db, user.id))
-    violations = safety.postcheck("\n".join(result.messages), booked_this_turn=st.booked, has_appointment=has_appt)
+    allowed = await _allowed_providers(db, user, st)
+    violations = safety.postcheck("\n".join(result.messages), booked_this_turn=st.booked, has_appointment=has_appt,
+                                  allowed_providers=allowed)
     if violations:
         log.warning("postcheck violations=%s", violations)
         retry_history = history + [
@@ -233,12 +277,12 @@ async def _run_main_agent(
                "Rewrite it so it follows the safety rules. Do not mention this feedback.</system_feedback>")
         retry = await run_agent(st, retry_history, fix, allow_tools=False)
         if retry.error or safety.postcheck("\n".join(retry.messages), booked_this_turn=st.booked,
-                                          has_appointment=has_appt):
-            result.messages = [safety.FALLBACK_REPLY]
+                                          has_appointment=has_appt, allowed_providers=allowed):
+            result.messages = [safety.fallback_reply(team)]
             violations.append("fallback_used")
             # FALLBACK_REPLY says the team will follow up, so make sure someone is asked to.
             await create_handoff(db, user, reason="bot_failure", urgency="routine",
-                                 note=f"Reply blocked by safety post-check ({', '.join(violations)})")
+                                 note=f"Reply blocked by safety post-check ({', '.join(violations)})", team=team)
         else:
             result.messages, result.risk_level = retry.messages, max(result.risk_level, retry.risk_level)
     await _finish_turn(db, user, run, result, violations, received_at)
@@ -247,7 +291,7 @@ async def _run_main_agent(
 async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: AgentResult, violations: list[str],
                        received_at: datetime | None = None) -> None:
     st = result.state
-    risk = max(run.risk_rule, result.risk_level)
+    risk = max(run.risk_rule, result.risk_level, st.code_risk)
     for entry_id in st.recorded_entry_ids:
         if await journeys.has_worsening(db, entry_id):
             risk = max(risk, 2)
@@ -255,6 +299,7 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
     rank = {None: -1, "routine": 0, "urgent": 1, "emergency": 2}
     if risk >= 2 and rank[st.handoff_urgency] < rank[URGENCY_FOR_RISK[min(risk, 4)]]:
         await create_handoff(db, user, reason=f"risk_l{risk}", urgency=URGENCY_FOR_RISK[min(risk, 4)],
+                             team=router.team_for(user, st.journey),
                              note=result.risk_reason or "auto-created from risk level", signals={"source": "risk_merge"})
     for entry_id in st.recorded_entry_ids:
         entry = await db.get(JournalEntry, entry_id)
@@ -273,10 +318,50 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
             run.reply_ms = int((utcnow() - received_at).total_seconds() * 1000)
             log.info("reply sent in %.1fs (llm %.1fs, tools=%s) user=%s", run.reply_ms / 1000, run.latency_ms / 1000,
                      ",".join(t["tool"] for t in (run.tool_calls or [])) or "-", user.id)
+    # Partnership disclosure for every partner named next to options – added by code, not left to the model
+    said = "\n".join(result.messages).lower()
+    disclose = list(st.shown_providers)
+    if st.knowledge_used and "essence" not in await router.provider_links(db, user):
+        disclose.append("essence")  # a non-client hearing about Essence's services
+    for slug in dict.fromkeys(disclose):
+        p = providers.get(slug)
+        if any(n.lower() in said for n in [p["name"], *p.get("aliases", [])]):
+            await outbound.send_text(db, user, f"ℹ️ {p['relationship']['disclosure']}", sender="aster_system")
+    for text in st.after_reply_texts:
+        await outbound.send_text(db, user, text, agent_run_id=run.id)
     for body, buttons in st.after_reply_buttons:
         if st.booked and buttons[0].id.startswith("slot:"):
             continue  # booked in this turn – the time buttons are stale
         await outbound.send_buttons(db, user, body, buttons)
+    await _maybe_invite_to_companion(db, user, st.journey, result, risk)
+
+
+async def _maybe_invite_to_companion(db: AsyncSession, user: User, journey, result: AgentResult, risk: int) -> None:
+    """Module 1 → 2: once per journey, after a calm check-in wrap-up, offer the companion. Never during a concern."""
+    if ("checkin_wrap_up" not in result.intents or journey is None or journey.companion_invited_at or risk >= 2
+            or result.state.after_reply_buttons or await memory.goals(db, user)):  # already using the companion
+        return
+    journey.companion_invited_at = utcnow()
+    await outbound.send_buttons(db, user, router.COMPANION_INVITE, router.INVITE_BUTTONS)
+
+
+async def _allowed_providers(db: AsyncSession, user: User, st) -> set[str]:
+    """Providers a reply may name: ones the user has a link with, has mentioned, or was shown as options."""
+    allowed = set(await router.provider_links(db, user)) | set(st.shown_providers)
+    if st.knowledge_used:
+        allowed.add("essence")  # the user asked about a service and the answer comes from Essence's content
+    if user.active_mode == "post_treatment":
+        allowed.add("essence")
+    recent = list(await db.scalars(select(Message.body).where(Message.user_id == user.id, Message.direction == "in")
+                                   .order_by(Message.created_at.desc()).limit(10)))
+    said = " ".join([st.user_text, *recent]).lower()
+    for slug, p in providers.catalog().items():
+        if any(n.lower() in said for n in [p["name"], *p.get("aliases", [])]):
+            allowed.add(slug)
+    shown = await db.scalars(select(ReferralOffer.providers_shown).where(
+        ReferralOffer.user_id == user.id, ReferralOffer.created_at > utcnow() - referral.COOLDOWN))
+    allowed |= {s for row in shown if row for s in row}
+    return allowed
 
 
 def _slot_button_text(button_id: str, title: str) -> str:
@@ -303,14 +388,14 @@ async def _handle_button(db: AsyncSession, user: User, button_id: str) -> bool:
         deferred = list(await db.scalars(
             select(Message).where(Message.user_id == user.id, Message.status == "deferred").order_by(Message.created_at)
         ))
-        text = "\n".join(m.body for m in deferred if m.body).strip()
-        if deferred and len(text) > 12:  # more than a greeting – answer it now
-            await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm excited to be part of your wellness "
-                                     "journey!", sender="aster_system")
+        text = providers.strip_entry_codes("\n".join(m.body for m in deferred if m.body).strip())
+        await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm glad you're here.", sender="aster_system")
+        if router.is_router_input(None, text):  # e.g. an ice breaker tapped before consent
+            await router.handle(db, user, None, text)
+        elif deferred and len(text) > 12 and not router.GREETING.match(text):  # more than a greeting – answer it now
             await _run_main_agent(db, user, deferred, text, safety.prefilter(text))
         else:
-            await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm excited to be part of your wellness "
-                                     "journey!\n\nHow can I help you today?", sender="aster_system")
+            await router.after_consent(db, user)
         for m in deferred:
             m.status = "processed"
         return True
