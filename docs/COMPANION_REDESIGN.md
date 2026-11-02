@@ -1,7 +1,8 @@
 # Aster as an independent Health & Longevity Companion — analysis and design (draft v0.1)
 
-Status: **design for review, no code yet.** Follows the phase-gated workflow: this doc is approved first, then
-the phases in §10 run one at a time with a review stop after each.
+Status: **implemented on branch `companion` (phases C0–C6, 2026-11-01/02).** Real-LLM check at the end of C6:
+23 scripted scenarios (49 turns) all pass, average reply 3.1 s; four simulated users (`scripts.simulate_patients
+c1 c2 c3 p1`) reviewed by hand. Demo steps: [DEMO_SCRIPT.md](DEMO_SCRIPT.md) Part A.
 
 Supersedes the "multi-brand" phase P3 of [WEIGHT_GUT_ENGINEERING.md](WEIGHT_GUT_ENGINEERING.md) §3. Instead of
 "one bot per brand", there is now **one Aster** and providers (Essence, Helix & Harvest, …) are catalog entries.

@@ -256,6 +256,7 @@ def plan_skeleton(goal: str, facts: dict[str, Fact], skipped: set[str], now: dat
 
 
 PLAN_LISTS = ("priorities", "daily_habits", "weekly_habits", "metrics")
+MAX_PLAN_CHARS = 3500  # one WhatsApp message holds 4,096 characters, and the header and notes need room
 
 
 def validate_plan(plan: dict, banned_terms: list[str]) -> list[str]:
@@ -284,4 +285,6 @@ def validate_plan(plan: dict, banned_terms: list[str]) -> list[str]:
         problems.append(f"a plan must not name providers or products: {hits}")
     if "$" in text:
         problems.append("a plan must not mention prices")
+    if len(text) > MAX_PLAN_CHARS:
+        problems.append(f"too long ({len(text)} characters) – keep it under {MAX_PLAN_CHARS}; fewer, shorter items")
     return problems

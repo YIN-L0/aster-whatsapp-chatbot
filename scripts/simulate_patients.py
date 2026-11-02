@@ -19,6 +19,44 @@ import time
 from pathlib import Path
 
 PERSONAS = {
+    # ---- companion (Module 2) and referral (Module 3) ----
+    "c1": {
+        "label": "Companion – weight loss, chatty, skips a question, wants a plan early",
+        "name": "Derek",
+        "setup": "#direct",
+        "persona": (
+            "You are Derek, 46, an accountant who wants to lose about 25 lb before his daughter's wedding in 6 months. "
+            "You write casually. You're 5'11\" and 225 lb. You walk a bit on weekends and nothing else. Typical day: "
+            "black coffee, a muffin, sandwich and chips at lunch, big dinner, ice cream at night, 2-3 beers on "
+            "Fridays. When asked your sex or age, answer one of them and say you'd rather skip the other. After about "
+            "4 answers, ask for a plan. If the plan has something you dislike (e.g. running), ask to change it. End "
+            "once you have a plan you like."
+        ),
+    },
+    "c2": {
+        "label": "Companion → referral – bloating, unsure whether to see someone, declines sharing",
+        "name": "Priya",
+        "setup": "#direct",
+        "persona": (
+            "You are Priya, 33, a teacher in Chicago with bloating most evenings for about two months, worse after "
+            "dairy. No blood, no weight loss, no fever. You want to understand what's going on and whether you "
+            "should see someone. Answer questions briefly. Later, ask if there's a professional or service that "
+            "could help. If you're offered options, show interest in one and ask how to get in touch. If asked "
+            "whether to share a summary, say no thanks, you'd rather contact them yourself. End after that."
+        ),
+    },
+    "c3": {
+        "label": "Essence client – Botox day 5 check-in, then switches to sleep",
+        "name": "Lena",
+        "setup": "#demo botox 5 Lena",
+        "persona": (
+            "You are Lena, 38, who had Botox 5 days ago. Answer the check-in: everything is fine, no drooping, no "
+            "headache, results look good. Then say you're also struggling with sleep – you fall asleep fine but "
+            "wake up at 3am and scroll your phone. Ask for help with that. You don't want any treatments or "
+            "services, just advice. End once you have two or three practical ideas."
+        ),
+    },
+
     "p1": {
         "label": "Lip filler, day 2 – anxious first-timer with a hidden warning sign",
         "name": "Hannah",
@@ -257,7 +295,9 @@ async def simulate(key: str, max_turns: int) -> dict:
     from app.channels import ConsoleChannel, InboundMessage, set_channel
     from app.config import get_settings
     from app.db import init_db, session_scope
-    from app.models import AgentRun, Appointment, Handoff, JournalEntry, SymptomObservation, User
+    from app.models import (
+        AgentRun, Appointment, Handoff, JournalEntry, Plan, ProfileFact, ReferralOffer, SymptomObservation, User,
+    )
     from app.pipeline import handle_inbound
 
     p = PERSONAS[key]
@@ -297,7 +337,10 @@ async def simulate(key: str, max_turns: int) -> dict:
     if p["setup"]:
         await send("hi")
         await send("I Agree", "consent:yes")
-        out = await send(p["setup"])
+        if p["setup"] == "#direct":  # a new user who wants help with their own goals
+            out = await send("No, my health goals", "entry:direct")
+        else:
+            out = await send(p["setup"])
     else:
         out = await send(p["first"])
         transcript.append({"role": "patient", "text": p["first"]})
@@ -343,6 +386,14 @@ async def simulate(key: str, max_turns: int) -> dict:
             "symptoms": [{"day": o.day_post_treatment, "code": o.symptom_code, "present": o.present,
                           "severity": o.severity, "status_change": o.status_change} for o in obs],
             "health_consent": user.health_consent,
+            "active_mode": user.active_mode,
+            "profile": {f.key: f.value for f in await db.scalars(select(ProfileFact).where(
+                ProfileFact.user_id == user.id, ProfileFact.superseded_at.is_(None)))},
+            "plans": [{"version": pl.version, "status": pl.status, "confidence": pl.confidence, "content": pl.content}
+                      for pl in await db.scalars(select(Plan).where(Plan.user_id == user.id).order_by(Plan.version))],
+            "referrals": [{"need": r.need, "status": r.status, "shown": r.providers_shown}
+                          for r in await db.scalars(select(ReferralOffer).where(ReferralOffer.user_id == user.id)
+                                                    .order_by(ReferralOffer.created_at))],
             "staff_alerts": [m["text"] for m in channel.sent if m["to"] != wa_id],
         }
     return {"key": key, "label": p["label"], "bot_provider": s.llm_provider,

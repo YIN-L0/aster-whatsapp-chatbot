@@ -235,3 +235,15 @@ async def test_companion_tools_need_health_consent_and_the_companion_mode(channe
     set_provider(FakeProvider([call("set_goal", goal="lose_weight"), reply("ok")]))
     await handle_inbound(inbound("lose weight"))
     assert (await _outputs())[0]["error"] == "tool_not_available"
+
+
+async def test_demo_console_shows_companion_data(channel):
+    from app import admin
+
+    await start_lose_weight(channel)
+    set_provider(FakeProvider([call("generate_plan", plan=PLAN, user_asked=True), reply("Here you go.")]))
+    await handle_inbound(inbound("plan please"))
+    async with session_scope() as db:
+        page = await admin.render(db, "key")
+    assert "Aster companion" in page and "Entry: <b>direct</b>" in page and "v1 · active · preliminary" in page
+    assert "readiness <b>not_ready</b>" in page or "readiness <b>" in page

@@ -185,3 +185,8 @@ async def test_delete_my_data_wipes_companion_tables():
         await wipe_user_data(db, user)
         for model in (ProfileFact, UserGoal, CompanionAssessment, Plan, ReferralOffer, ProviderLink):
             assert await db.scalar(select(func.count()).select_from(model)) == 0, model.__name__
+
+
+def test_validate_plan_rejects_a_plan_too_long_for_one_whatsapp_message():
+    long_plan = {**GOOD_PLAN, "daily_habits": ["Walk a little more after dinner, most days. " * 10] * 10}
+    assert any("too long" in p for p in comp.validate_plan(long_plan, []))

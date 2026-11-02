@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, commands, journeys, outbound, providers, referral, router, safety
+from app import booking, commands, journeys, memory, outbound, providers, referral, router, safety
 from app.agent import AgentResult, TurnState, run_agent
 from app.channels import Button, InboundMessage
 from app.config import get_settings
@@ -320,7 +320,10 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
                      ",".join(t["tool"] for t in (run.tool_calls or [])) or "-", user.id)
     # Partnership disclosure for every partner named next to options – added by code, not left to the model
     said = "\n".join(result.messages).lower()
-    for slug in dict.fromkeys(st.shown_providers):
+    disclose = list(st.shown_providers)
+    if st.knowledge_used and "essence" not in await router.provider_links(db, user):
+        disclose.append("essence")  # a non-client hearing about Essence's services
+    for slug in dict.fromkeys(disclose):
         p = providers.get(slug)
         if any(n.lower() in said for n in [p["name"], *p.get("aliases", [])]):
             await outbound.send_text(db, user, f"ℹ️ {p['relationship']['disclosure']}", sender="aster_system")
@@ -336,7 +339,7 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
 async def _maybe_invite_to_companion(db: AsyncSession, user: User, journey, result: AgentResult, risk: int) -> None:
     """Module 1 → 2: once per journey, after a calm check-in wrap-up, offer the companion. Never during a concern."""
     if ("checkin_wrap_up" not in result.intents or journey is None or journey.companion_invited_at or risk >= 2
-            or result.state.after_reply_buttons or await router.open_assessment(db, user)):
+            or result.state.after_reply_buttons or await memory.goals(db, user)):  # already using the companion
         return
     journey.companion_invited_at = utcnow()
     await outbound.send_buttons(db, user, router.COMPANION_INVITE, router.INVITE_BUTTONS)
@@ -345,6 +348,8 @@ async def _maybe_invite_to_companion(db: AsyncSession, user: User, journey, resu
 async def _allowed_providers(db: AsyncSession, user: User, st) -> set[str]:
     """Providers a reply may name: ones the user has a link with, has mentioned, or was shown as options."""
     allowed = set(await router.provider_links(db, user)) | set(st.shown_providers)
+    if st.knowledge_used:
+        allowed.add("essence")  # the user asked about a service and the answer comes from Essence's content
     if user.active_mode == "post_treatment":
         allowed.add("essence")
     recent = list(await db.scalars(select(Message.body).where(Message.user_id == user.id, Message.direction == "in")

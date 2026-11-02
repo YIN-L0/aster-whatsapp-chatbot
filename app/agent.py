@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "main@companion-3"
 MAX_TOOL_STEPS = 6
+MAX_MESSAGES = 2  # WhatsApp messages per reply
 
 SYSTEM_PROMPT = """You are Aster, an independent AI health & longevity companion on WhatsApp. You build a long-term \
 relationship with each person: you learn their goals, habits and history over time and help them improve their \
@@ -473,6 +474,7 @@ class TurnState:
     code_risk: int = 0  # risk the rules found in what was recorded (e.g. a GI red flag), merged after the reply
     user_text: str = ""  # what the user wrote this turn (the referral gate checks it)
     shown_providers: list[str] = field(default_factory=list)  # find_services results this turn
+    knowledge_used: bool = False  # search_knowledge (Essence content) returned something this turn
     after_reply_texts: list[str] = field(default_factory=list)  # e.g. the saved plan, sent after the reply
     booked: bool = False
     handoff_urgency: str | None = None
@@ -526,6 +528,8 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
                 "note": "Progress in the other mode is kept. Answer the user's message in this mode now."}
     if name == "search_knowledge":
         hits = knowledge.search(args.get("query", ""))
+        if hits:
+            st.knowledge_used = True  # Essence's own content was looked up, so the reply may name Essence
         return {"results": hits} if hits else {"results": [], "note": "No reviewed content found. Do not guess."}
 
     if name == "propose_journey":
@@ -1016,7 +1020,10 @@ async def run_agent(
             except LLMCallFailed as exc2:
                 raise LLMCallFailed(f"{exc}; {exc2}") from exc2
         data = json.loads(text)
-        msgs = [m.strip() for m in data.get("messages", []) if m and m.strip()][:3]
+        msgs = [m.strip() for m in data.get("messages", []) if m and m.strip()]
+        if len(msgs) > MAX_MESSAGES:
+            # The prompt asks for 1–2; real runs sometimes split into 3. Merge rather than drop anything.
+            msgs = msgs[:MAX_MESSAGES - 1] + ["\n\n".join(msgs[MAX_MESSAGES - 1:])]
         if not msgs:
             raise RuntimeError("empty_reply")
         return AgentResult(

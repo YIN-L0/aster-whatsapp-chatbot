@@ -176,3 +176,13 @@ async def test_sharing_needs_a_tap_and_sends_only_the_summary(channel):
 
     await handle_inbound(inbound("Don't share", button_id="ref:noshare"))
     assert "nothing was shared" in _to_user(channel)[-1]["text"]
+
+
+async def test_a_service_question_answered_from_essence_content_may_name_essence_with_a_disclosure(channel):
+    await companion_user(channel)
+    set_provider(FakeProvider([call("search_knowledge", query="Botox price"),
+                               reply("At Essence, Botox starts at $13/unit.")]))
+    await handle_inbound(inbound("Hola, how much is Botox?"))
+    texts = [m["text"] for m in _to_user(channel)]
+    assert texts[-2] == "At Essence, Botox starts at $13/unit."  # not blocked by the post-check
+    assert texts[-1].startswith("ℹ️ Aster partners with Essence")  # a non-client hears about the partnership

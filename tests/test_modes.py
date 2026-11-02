@@ -177,3 +177,23 @@ async def test_choosing_the_companion_after_a_checkin_is_respected(channel):
     await handle_inbound(inbound("I want to eat better"))
     assert (await _user()).active_mode == "companion"
     assert (await _tool_outputs())[0]["status"] == "started"
+
+
+async def test_more_than_two_messages_are_merged_not_dropped(channel):
+    await companion_user(channel)
+    set_provider(FakeProvider([reply("One.", "Two.", "Three!")]))
+    await handle_inbound(inbound("tell me about fiber"))
+    to_user = [m["text"] for m in channel.sent if m["to"] == "15551230000"]
+    assert to_user[-2:] == ["One.", "Two.\n\nThree!"]
+
+
+async def test_no_companion_invite_for_someone_already_using_the_companion(channel):
+    set_provider(FakeProvider([reply("Hi! How are you?", intents=["checkin"])]))
+    await handle_inbound(inbound("hi"))
+    await handle_inbound(inbound("I Agree", button_id="consent:yes"))
+    await handle_inbound(inbound("#demo botox 5 Lena"))
+    set_provider(FakeProvider([[{"name": "switch_mode", "input": {"mode": "companion"}}],
+                               [{"name": "set_goal", "input": {"goal": "sleep"}}],
+                               reply("All good with your Botox – and some sleep tips…", intents=["checkin_wrap_up"])]))
+    await handle_inbound(inbound("all fine, no drooping. Also I keep waking at 3am, tips?"))
+    assert not any(m["type"] == "buttons" and "invite:no" in str(m["buttons"]) for m in channel.sent)
