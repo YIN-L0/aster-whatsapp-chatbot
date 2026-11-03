@@ -20,11 +20,11 @@ SETTINGS = {
     "enable_welcome_message": True,
     "commands": [
         {"command_name": "menu", "command_description": "Show the Aster menu"},
-        {"command_name": "companion", "command_description": "Your health goals, habits and plan"},
-        {"command_name": "aftercare", "command_description": "Questions after a treatment, check-ins and visits"},
-        {"command_name": "plan", "command_description": "See your current health plan"},
-        {"command_name": "human", "command_description": "Ask the team to get in touch"},
-        {"command_name": "privacy", "command_description": "Messages, your data and how to stop"},
+        {"command_name": "companion", "command_description": "Your health goals and personalized assessment"},
+        {"command_name": "aftercare", "command_description": "My care & follow-ups: treatment support and check-ins"},
+        {"command_name": "plan", "command_description": "View your longevity plan"},
+        {"command_name": "human", "command_description": "Connect with a care team"},
+        {"command_name": "privacy", "command_description": "Manage your data and preferences"},
     ],
     # Up to 4, max 80 characters, no emoji
     "prompts": ["Help me with my health goals", "Questions after my treatment", "What is Aster?"],

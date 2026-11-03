@@ -16,7 +16,7 @@ from app.models import ReferralOffer, User, utcnow
 
 COOLDOWN = timedelta(days=30)
 ACCEPT_WINDOW = timedelta(hours=24)
-ANY_NEED = "any"  # "Find a service" in the menu: the user asked, the need comes next
+ANY_NEED = "any"  # "Explore Health Services" in the menu: the user asked, the need comes next
 ASK = re.compile(
     r"\b(recommend\w*|suggest\w*|some(one|body)|professional|expert|specialist|dietitian|nutritionist|coach(ing)?|"
     r"trainer|doctor|clinic(ian)?|service|provider|program|options?|where (can|do|should) i|who (can|could|should)|"

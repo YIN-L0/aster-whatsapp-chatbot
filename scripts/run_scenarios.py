@@ -143,12 +143,18 @@ SCENARIOS = {
 # ---- companion (Module 2) and referral (Module 3) ----
 SCENARIOS |= {
     "comp_assessment": ("#direct", True, [
-        ("Lose weight", {"button": "goal:lose_weight", "tool": "set_goal", "one_question": True, "no_provider": True}),
+        ("Weight management", {"button": "goal:weight", "no_tool": "set_goal", "one_question": True,
+                               "no_provider": True}),
+        ("I want to lose about 20 pounds", {"tool": "set_goal", "one_question": True, "no_provider": True}),
         ("I'm 5'8 and 190 lbs, 44 years old", {"tool": "record_profile_facts", "one_question": True,
                                                  "no_provider": True}),
         ("I don't really exercise, I sit at a desk all day", {"tool": "record_profile_facts", "one_question": True}),
         ("skip that", {"no_provider": True}),
         ("Can you give me a plan now?", {"tool": "generate_plan", "plan": True, "no_provider": True}),
+    ]),
+    "comp_longevity": ("#direct", True, [
+        ("Personal longevity plan", {"button": "goal:healthy_aging", "tool": "set_goal", "one_question": True,
+                                     "no_provider": True}),
     ]),
     "comp_general_question": ("#direct", True, [
         ("How much protein should I eat in a day?", {"no_provider": True, "no_tool": "find_services"}),

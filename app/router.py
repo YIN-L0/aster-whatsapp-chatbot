@@ -32,11 +32,10 @@ TRIAGE_BUTTONS = [Button("entry:essence", "Yes, Essence client"), Button("entry:
                   Button("entry:skip", "Skip for now")]
 START_BUTTONS = [Button("mode:post_treatment", "My treatment"), Button("mode:companion", "My health goals")]
 COMPANION_INTRO = (
-    "🌿 *Your health companion*\n\n"
-    "This is your space for your own health goals – nutrition, weight, digestion, movement, sleep, stress, whatever "
-    "matters to you. I'll listen, give you honest, science-based feedback, and we can build a personal plan together "
-    "over time. No sales pitch: if you ever want a professional or a service, just ask.\n\n"
-    "What would you most like to work on right now?"
+    "I'm Aster, here to help you understand your health, create a personalized longevity plan, and connect you with "
+    "the right care and services.\n\n"
+    "From nutrition and fitness to preventive care and healthy aging, I'll guide you every step of the way.\n\n"
+    "✨ What's your biggest health or longevity goal right now?"
 )
 MENU_HINT = "_Type MENU anytime to switch between your health goals and treatment support._"
 PRIVACY_TEXT = (
@@ -111,8 +110,7 @@ async def after_consent(db: AsyncSession, user: User) -> None:
     elif providers.get(user.entry_source):
         user.active_mode = "companion"
         name = providers.get(user.entry_source)["name"]
-        await outbound.send_text(db, user, f"Welcome from {name}! 🌿\n\n{COMPANION_INTRO}\n\n{MENU_HINT}",
-                                 sender="aster_system")
+        await send_goal_list(db, user, f"Welcome from {name}! 🌿\n\n{COMPANION_INTRO}\n\n{MENU_HINT}")
     else:
         await outbound.send_buttons(db, user, TRIAGE_TEXT, TRIAGE_BUTTONS)
 
@@ -122,9 +120,9 @@ async def after_consent(db: AsyncSession, user: User) -> None:
 
 open_assessment = memory.open_assessment
 GOAL_ROWS = [  # id goal:<code> – the agent receives "My goal: <title>" and calls set_goal
-    ("lose_weight", "Lose weight"), ("build_muscle", "Build muscle"), ("gut_health", "Better digestion"),
-    ("general", "Eat healthier"), ("body_shape", "Change body shape"), ("maintain", "Keep a healthy weight"),
-    ("sleep", "Sleep better"), ("stress", "Manage stress"), ("energy", "More energy"), ("other", "Something else"),
+    # "weight" is not a goal code: the agent asks whether they want to lose, keep or reshape, then calls set_goal
+    ("weight", "Weight management"), ("general", "Nutrition optimization"), ("gut_health", "Digestive and gut health"),
+    ("healthy_aging", "Personal longevity plan"), ("other", "Something else"),
 ]
 
 
@@ -133,27 +131,32 @@ def _goal_label(goal: str) -> str:
 
 
 async def send_menu(db: AsyncSession, user: User) -> None:
-    here = "You're here · "
+    def here(mode: str) -> str:
+        return "You're here · " if user.active_mode == mode else ""
+
     a = await open_assessment(db, user)
     if a:
-        rows = [ListRow("mode:companion", "Continue my assessment", f"{_goal_label(a.goal)} – pick up where we left off")]
+        rows = [ListRow("mode:companion", "Continue My Assessment",
+                        f"Resume your personalized health assessment ({_goal_label(a.goal)})")]
     else:
-        rows = [ListRow("mode:companion", "Health companion", (here if user.active_mode == "companion" else "")
-                        + "Your goals, nutrition, habits and plan")]
-    if "essence" in await provider_links(db, user):
-        rows.append(ListRow("mode:post_treatment", "Treatment care & visits",
-                            (here if user.active_mode == "post_treatment" else "")
-                            + "Aftercare questions, check-ins and Essence visits"))
-    else:
-        rows.append(ListRow("entry:essence", "I'm an Essence client", "Support after a treatment at Essence"))
+        rows = [ListRow("mode:companion", "My Health Goals", here("companion") + "Explore your goals and get a "
+                        "personalized assessment")]
+    # Without a clinic link, My Care asks which clinic first (enter_post_treatment) – the title doesn't name Essence
     rows += [
-        ListRow("menu:plan", "My plan", "See your current health plan"),
-        ListRow("menu:services", "Find a service", "Professionals and partner services, when you want them"),
-        ListRow("menu:human", "Talk to a person", "Ask the team to get in touch"),
-        ListRow("menu:privacy", "Privacy & settings", "Messages, your data and how to stop"),
+        ListRow("menu:plan", "My Longevity Plan", "View your personalized health goals and next steps"),
+        ListRow("mode:post_treatment", "My Care & Follow-ups",
+                here("post_treatment") + "Treatment support, check-ins and ongoing care"),
+        ListRow("menu:services", "Explore Health Services", "Discover relevant providers and services"),
+        ListRow("menu:human", "Connect with a Care Team", "Request support from a real person"),
+        ListRow("menu:privacy", "Privacy & Settings", "Manage your data and preferences"),
     ]
     await outbound.send_list(db, user, "What would you like to do? You can type MENU anytime to come back here.",
-                             "Open menu", rows)
+                             "Your Longevity Hub", rows)
+
+
+async def send_goal_list(db: AsyncSession, user: User, text: str = COMPANION_INTRO) -> None:
+    await outbound.send_list(db, user, text, "Explore health goals",
+                             [ListRow(f"goal:{code}", title) for code, title in GOAL_ROWS])
 
 
 async def enter_companion(db: AsyncSession, user: User) -> None:
@@ -164,10 +167,11 @@ async def enter_companion(db: AsyncSession, user: User) -> None:
                                  f"*{_goal_label(a.goal)}*. Want to pick up where we left off, or is something else on "
                                  "your mind?", sender="aster_system")
         return
-    await outbound.send_text(db, user, COMPANION_INTRO, sender="aster_system")
-    if not await memory.goals(db, user):
-        await outbound.send_list(db, user, "Pick one to start, or just tell me in your own words.", "Choose a goal",
-                                 [ListRow(f"goal:{code}", title) for code, title in GOAL_ROWS])
+    if await memory.goals(db, user):
+        await outbound.send_text(db, user, "Welcome back to your health companion 🌿 What's on your mind today?",
+                                 sender="aster_system")
+    else:
+        await send_goal_list(db, user)
 
 
 async def enter_post_treatment(db: AsyncSession, user: User) -> None:
@@ -206,7 +210,7 @@ def format_plan(plan: Plan) -> str:
                      + (f" (still unknown: {', '.join(missing)})" if missing else "")
                      + ". It gets better as you tell me more._")
     if plan.review_after:
-        parts.append(f"_Let's look at it again around {plan.review_after:%b %-d}. Type MENU → My plan to see it anytime._")
+        parts.append(f"_Let's look at it again around {plan.review_after:%b %-d}. Type MENU → My Longevity Plan to see it anytime._")
     return "\n\n".join(p for p in parts if p)
 
 

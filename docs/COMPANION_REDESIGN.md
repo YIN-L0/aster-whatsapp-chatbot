@@ -121,9 +121,10 @@ already has one agent loop with tool filtering (`allow_tools`), so mode routing 
 **Chosen:** a *summoned* menu, not a fake persistent one.
 1. Commands configured once via a setup script: `/menu`, `/companion`, `/aftercare`, `/plan`, `/human`.
 2. Typed keywords work too: `MENU`, `HOME`, `SWITCH`.
-3. `MENU` sends a **list message** (rows depend on the user):
-   `My health companion` · `Post-treatment & visits` (only with a provider link) · `My plan` ·
-   `Find a service` · `Talk to a person` · `Privacy & settings`.
+3. `MENU` sends a **list message**, "Your Longevity Hub" (docs/menu_v2.png):
+   `Continue My Assessment` (or `My Health Goals`) · `My Longevity Plan` · `My Care & Follow-ups` (asks for the
+   clinic first without a provider link) · `Explore Health Services` · `Connect with a Care Team` ·
+   `Privacy & Settings`. Row titles are cut at 24 characters, so "Continue My Health Assessment" is shortened.
 4. Ice breakers on first open: "Help me with my health goals", "Questions after my treatment", "What is Aster?".
 5. Contextual buttons at natural transitions only (end of a check-in, plan delivered), e.g.
    `[Health goals] [Menu]` — never appended to every message.
@@ -358,7 +359,7 @@ These override anything above that says otherwise.
 | D6 | Companion reminders | Not in the MVP |
 | D7 | Referral decline cooldown | 30 days per need |
 | D8 | Clinical review | `companion.yaml` is a draft, demo only, like `weight_gut` |
-| D9 | MVP structured goals | **Only weight / nutrition / gut**, built on the `weight_gut` engine. Other goals (sleep, stress, fitness, aging, …): Aster talks about them with general, science-informed guidance and saves the goal to the profile, but there is no structured assessment or plan for them yet; it says a fuller plan for that goal is coming later |
+| D9 | MVP structured goals | **Weight / nutrition / gut, plus a personal longevity plan** (2026-11-02; same slots, longevity metrics), built on the `weight_gut` engine. Other goals (sleep, stress, fitness, …): Aster talks about them with general, science-informed guidance and saves the goal to the profile, but there is no structured assessment or plan for them yet; it says a fuller plan for that goal is coming later |
 | D10 | Medical background | **Not asked.** No conditions, medications or pregnancy questions. Age, sex, height and weight are still asked (needed for the engine). If the user volunteers pregnancy, a condition or medication, the existing safety rules still apply (special-population handoff, no calorie target, "check with your doctor") |
 | D11 | Purchases | **No checkout links.** Every provider gives information plus contact details or its booking link; Essence keeps in-chat booking. The Helix catalog's `kind: buy/subscribe` items are shown as "available from Helix & Harvest" with contact details |
 

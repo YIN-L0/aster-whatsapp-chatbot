@@ -25,9 +25,7 @@ _locks: dict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 RETURN_GAP = timedelta(hours=12)
 WELCOME_TEXT = (
     "🌿 *Welcome to Aster!*\n\n"
-    "Hi {name}! I'm Aster, your personal AI health & longevity companion.\n\n"
-    "I'm here to help you work toward your own health goals over time – and if you've had a treatment with one of "
-    "our partner clinics, to support you through your recovery.\n\n"
+    "Hi {name}! Aster is your health companion – a personal AI longevity companion.\n\n"
     "Before we get started, please review our Privacy Policy:\n{privacy_url}"
 )
 CONSENT_TEXT = (
