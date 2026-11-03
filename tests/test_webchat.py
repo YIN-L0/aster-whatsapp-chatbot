@@ -63,4 +63,4 @@ async def test_webchat_entry_source_and_menu_list():
         await c.post("/chat/api/send", json={"user_id": uid, "text": "MENU"})
         data = await _wait_for(c, uid, lambda d: d["messages"][-1]["type"] == "list")
         rows = data["messages"][-1]["buttons"]
-        assert rows[1]["id"] == "mode:post_treatment" and rows[1]["description"]
+        assert rows[2]["id"] == "mode:post_treatment" and rows[2]["description"]

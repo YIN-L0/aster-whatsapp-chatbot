@@ -109,7 +109,7 @@ goals:
       - "Waist measurement every 2 weeks"
       - "Strength sessions this week"
   gut_health:
-    label: Better digestion
+    label: Digestive and gut health
     structured: true
     core: [gut_symptoms, meals]
     supporting: [diet_plan, exercise, body_measures]
@@ -118,18 +118,26 @@ goals:
       - "Fruit and vegetable servings a day"
       - "Glasses of water a day"
   general:
-    label: Eat healthier
+    label: Nutrition optimization
     structured: true
     core: [meals, exercise]
     supporting: [body_measures, age, diet_plan, gut_symptoms]
     metrics:
       - "Fruit and vegetable servings a day"
       - "Home-cooked meals this week"
+  healthy_aging:
+    label: Personal longevity plan
+    structured: true
+    core: [body_measures, age, exercise, meals]
+    supporting: [sex, diet_plan, gut_symptoms]
+    metrics:
+      - "Active minutes this week (working toward 150)"
+      - "Strength sessions this week"
+      - "Fruit and vegetable servings a day"
   sleep: {label: Sleep better, structured: false}
   stress: {label: Manage stress, structured: false}
   energy: {label: More energy, structured: false}
   fitness: {label: Get fitter, structured: false}
-  healthy_aging: {label: Healthy aging and longevity, structured: false}
   skin: {label: Skin and appearance, structured: false}
   other: {label: Something else, structured: false}
 

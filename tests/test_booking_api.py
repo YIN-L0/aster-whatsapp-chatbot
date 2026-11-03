@@ -277,3 +277,20 @@ def test_slot_buttons_prefer_different_times_and_name_the_provider():
     titles = [b.title for b in slot_buttons(same_time, "botox")]
     assert titles[:2] == ["10/30 9AM Diane", "10/30 9AM Melissa"]  # only option: same time, told apart by name
     assert all(len(t) <= 20 for t in titles)
+
+
+async def test_a_slot_without_an_offset_is_booked_in_clinic_time(channel, backend):
+    """The model sometimes drops the offset ("…T15:30:00"). The booking must still be saved, in clinic time."""
+    await onboard(channel)
+    naive = _tomorrow_slot().removesuffix("-04:00")
+    set_provider(FakeProvider([
+        [{"name": "book_appointment", "input": {"slot": naive, "purpose": "new_treatment", "service": "Botox",
+                                                "provider": "Claire Benson, RN", "patient_full_name": "Emily Stone"}}],
+        reply("You're all set!", intents=["booking"]),
+    ]))
+    await handle_inbound(inbound("Emily Stone"))
+    assert (await _last_tool_outputs())[0]["status"] == "confirmed"
+    sent = json.loads([r for r in backend.requests if r.method == "POST"][-1].content)["start"]
+    assert sent.startswith(naive) and sent != naive  # the backend gets the offset too
+    async with session_scope() as db:
+        assert (await db.scalar(select(Appointment))).starts_at is not None

@@ -42,16 +42,16 @@ async def consent(channel, first="hi"):
 async def test_direct_user_gets_the_essence_question_once_and_lands_in_the_companion(channel):
     await consent(channel)
     welcome = next(m for m in channel.sent if m["type"] == "text")
-    assert "health & longevity companion" in welcome["text"]
+    assert "personal AI longevity companion" in welcome["text"]
     triage = channel.sent[-1]
     assert _ids(triage) == ["entry:essence", "entry:direct", "entry:skip"]
     assert all(len(b["title"]) <= 20 for b in triage["buttons"])
 
     await handle_inbound(inbound("No, my health goals", button_id="entry:direct"))
-    assert "Your health companion" in channel.sent[-2]["text"]
-    goals = channel.sent[-1]
-    assert goals["type"] == "list" and _ids(goals)[0] == "goal:lose_weight" and len(goals["rows"]) <= 10
-    assert all(len(r["title"]) <= 24 for r in goals["rows"])
+    goals = channel.sent[-1]  # the opening and the goals in one message
+    assert goals["type"] == "list" and goals["text"].startswith("I'm Aster") and len(goals["rows"]) <= 10
+    assert _ids(goals) == ["goal:weight", "goal:general", "goal:gut_health", "goal:healthy_aging", "goal:other"]
+    assert all(len(r["title"]) <= 24 for r in goals["rows"]) and len(goals["button"]) <= 20
     user = await _user()
     assert (user.entry_source, user.active_mode) == ("direct", "companion")
     assert await _links() == {}
@@ -112,7 +112,7 @@ async def test_ice_breaker_tapped_before_consent_routes_after_consent(channel):
     set_provider(FakeProvider([]))
     await handle_inbound(inbound("Help me with my health goals"))
     await handle_inbound(inbound("I Agree", button_id="consent:yes"))
-    assert "Your health companion" in channel.sent[-2]["text"] and channel.sent[-1]["type"] == "list"
+    assert channel.sent[-1]["type"] == "list" and channel.sent[-1]["text"].startswith("I'm Aster")
 
 
 # ---------- menu and modes ----------
@@ -122,14 +122,16 @@ async def test_menu_rows_depend_on_the_user_and_fit_whatsapp_limits(channel):
     await consent(channel)
     await handle_inbound(inbound("MENU"))
     menu = channel.sent[-1]
-    assert menu["type"] == "list" and menu["button"] == "Open menu"
-    assert "entry:essence" in _ids(menu) and "mode:post_treatment" not in _ids(menu)
+    assert menu["type"] == "list" and menu["button"] == "Your Longevity Hub"
+    assert _ids(menu) == ["mode:companion", "menu:plan", "mode:post_treatment", "menu:services", "menu:human",
+                          "menu:privacy"]
     assert all(len(r["title"]) <= 24 and len(r["description"]) <= 72 for r in menu["rows"])
 
-    await handle_inbound(inbound("I'm an Essence client", button_id="entry:essence"))
+    # My Care & Follow-ups doesn't name Essence, so without a clinic link it asks before switching
+    await handle_inbound(inbound("My Care & Follow-ups", button_id="mode:post_treatment"))
+    assert _ids(channel.sent[-1]) == ["entry:essence", "mode:companion"] and await _links() == {}
+    await handle_inbound(inbound("Yes, Essence client", button_id="entry:essence"))
     assert await _links() == {"essence": "self_reported"}
-    await handle_inbound(inbound("/menu"))
-    assert "mode:post_treatment" in _ids(channel.sent[-1]) and "entry:essence" not in _ids(channel.sent[-1])
 
 
 async def test_menu_before_consent_shows_onboarding_not_the_menu(channel):
@@ -151,8 +153,8 @@ async def test_switching_modes_keeps_assessment_progress(channel):
     await handle_inbound(inbound("/aftercare"))
     assert (await _user()).active_mode == "post_treatment"
     await handle_inbound(inbound("MENU"))
-    assert channel.sent[-1]["rows"][0]["title"] == "Continue my assessment"
-    await handle_inbound(inbound("Continue my assessment", button_id="mode:companion"))
+    assert channel.sent[-1]["rows"][0]["title"] == "Continue My Assessment"
+    await handle_inbound(inbound("Continue My Assessment", button_id="mode:companion"))
     async with session_scope() as db:
         a = await db.scalar(select(CompanionAssessment))
         assert (a.current_slot, a.asked_slots, a.skipped_slots) == ("exercise", ["body_measures", "age"], ["sex"])
@@ -196,7 +198,7 @@ async def test_returning_user_saying_hi_is_offered_to_continue(channel):
         db.add(CompanionAssessment(user_id=user.id, goal="gut_health", status="paused"))
     await _age_last_message(30)
     await handle_inbound(inbound("hi"))
-    assert "Welcome back, Emily" in channel.sent[-1]["text"] and "*Better digestion*" in channel.sent[-1]["text"]
+    assert "Welcome back, Emily" in channel.sent[-1]["text"] and "*Digestive and gut health*" in channel.sent[-1]["text"]
     assert _ids(channel.sent[-1]) == ["mode:companion", "menu:open"]
     assert (await _user()).returned_at is None  # only the first message after the gap counts
 

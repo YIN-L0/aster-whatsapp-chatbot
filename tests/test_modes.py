@@ -35,7 +35,7 @@ async def companion_user(channel, first="hi"):
 
 def test_prompt_is_companion_first_and_has_no_booking_push():
     p = agent.SYSTEM_PROMPT
-    assert p.startswith("You are Aster, an independent AI health & longevity companion")
+    assert p.startswith("You are Aster, an independent health companion – a personal AI longevity companion")
     assert "Be proactive" not in p
     assert "Never end an aftercare answer with a booking offer" in p
     assert "Don't mention providers, products or paid services unless they ask" in p
