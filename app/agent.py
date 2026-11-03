@@ -902,6 +902,8 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
             when = datetime.fromisoformat(args["slot"])
         except ValueError:
             return {"error": "invalid_slot"}
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=api.tz)  # a slot without an offset means clinic local time
         if args.get("patient_full_name"):
             user.full_name = args["patient_full_name"].strip()[:120]
         if args.get("patient_birth_date"):
@@ -916,9 +918,9 @@ async def _exec_booking_api(st: TurnState, api: booking.ApiBookingAdapter, name:
         if missing:
             return {"error": "need_patient_details", "missing": missing,
                     "hint": "Ask for exactly these in one short message, then call book_appointment again."}
-        key_src = f"{st.source_message_ids[-1] if st.source_message_ids else uuid.uuid4()}|{args['slot']}|{doctor['code']}"
+        key_src = f"{st.source_message_ids[-1] if st.source_message_ids else uuid.uuid4()}|{when.isoformat()}|{doctor['code']}"
         res = await api.book(
-            doctor=doctor["code"], service=svc["code"], start=args["slot"],
+            doctor=doctor["code"], service=svc["code"], start=when.isoformat(),
             patient={"name": user.full_name, "phone": phone, "birthDate": birth_date, "email": None},
             note=(args.get("notes_for_provider") or "")[:500] + " (via WhatsApp)",
             idempotency_key=hashlib.sha256(key_src.encode()).hexdigest()[:40],
