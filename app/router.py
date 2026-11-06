@@ -29,7 +29,7 @@ GREETING = re.compile(r"^\s*(hi+|hello|hey|hiya|yo|good (morning|afternoon|eveni
 
 TRIAGE_TEXT = ("One quick question so I can help in the right way: have you had care or treatment at "
                "*Essence Aesthetics & Wellness* before?")
-TRIAGE_BUTTONS = [Button("entry:essence", "Yes, Essence client"), Button("entry:direct", "No, my health goals"),
+TRIAGE_BUTTONS = [Button("entry:essence", "Yes, Essence client"), Button("entry:direct", "No, set health goals"),
                   Button("entry:skip", "Skip for now")]
 START_BUTTONS = [Button("mode:post_treatment", "My treatment"), Button("mode:companion", "My health goals")]
 COMPANION_INTRO = (
@@ -38,7 +38,8 @@ COMPANION_INTRO = (
     "From nutrition and fitness to preventive care and healthy aging, I'll guide you every step of the way.\n\n"
     "✨ What's your biggest health or longevity goal right now?"
 )
-HUB_HINT = "_Type HUB anytime to switch between your health goals and treatment support._"
+HUB_HINT = "_Type HUB anytime to go back._"
+FIRST_GOALS_TEXT = f"{COMPANION_INTRO}\n\n{HUB_HINT}"  # the first goal list a user sees
 PRIVACY_TEXT = (
     "🔒 *Privacy & settings*\n\n"
     "• *STOP* pauses check-in messages; *START* turns them back on.\n"
@@ -182,7 +183,7 @@ async def goal_status(db: AsyncSession, user: User) -> dict[str, str]:
     return out
 
 
-async def send_goal_list(db: AsyncSession, user: User, text: str = COMPANION_INTRO) -> None:
+async def send_goal_list(db: AsyncSession, user: User, text: str = FIRST_GOALS_TEXT) -> None:
     """The goal list, each row marked with its status so the user sees what's done and what's waiting."""
     status = await goal_status(db, user)
     labels = {"plan": "✅ Plan ready · tap to view or update", "in_progress": "⏸ In progress · tap to continue"}
@@ -212,7 +213,7 @@ async def enter_post_treatment(db: AsyncSession, user: User) -> None:
         await outbound.send_buttons(
             db, user, "Treatment support is for clients of our partner clinics – right now that's Essence Aesthetics "
             "& Wellness. Were you treated at Essence?",
-            [Button("entry:essence", "Yes, Essence client"), Button("mode:companion", "No, my health goals")],
+            [Button("entry:essence", "Yes, Essence client"), Button("mode:companion", "No, set health goals")],
         )
         return
     user.active_mode, user.mode_chosen_at = "post_treatment", utcnow()
@@ -298,7 +299,7 @@ async def handle(db: AsyncSession, user: User, button_id: str | None, text: str)
         # The goal list, even mid-assessment: picking a goal pauses the open one (its answers are kept)
         user.active_mode, user.mode_chosen_at = "companion", utcnow()
         first_time = not await memory.goals(db, user) and not await open_assessment(db, user)
-        await send_goal_list(db, user, COMPANION_INTRO if first_time else GOALS_TEXT)
+        await send_goal_list(db, user, FIRST_GOALS_TEXT if first_time else GOALS_TEXT)
     elif action == "mode:post_treatment":
         await enter_post_treatment(db, user)
     elif action == "menu:plan":

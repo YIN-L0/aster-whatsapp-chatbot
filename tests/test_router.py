@@ -46,10 +46,12 @@ async def test_direct_user_gets_the_essence_question_once_and_lands_in_the_compa
     triage = channel.sent[-1]
     assert _ids(triage) == ["entry:essence", "entry:direct", "entry:skip"]
     assert all(len(b["title"]) <= 20 for b in triage["buttons"])
+    assert triage["buttons"][1]["title"] == "No, set health goals"
 
-    await handle_inbound(inbound("No, my health goals", button_id="entry:direct"))
+    await handle_inbound(inbound("No, set health goals", button_id="entry:direct"))
     goals = channel.sent[-1]  # the opening and the goals in one message
     assert goals["type"] == "list" and goals["text"].startswith("I'm Aster") and len(goals["rows"]) <= 10
+    assert goals["text"].endswith("_Type HUB anytime to go back._")
     assert _ids(goals) == ["goal:weight", "goal:general", "goal:gut_health", "goal:healthy_aging", "goal:other"]
     assert all(len(r["title"]) <= 24 for r in goals["rows"]) and len(goals["button"]) <= 20
     user = await _user()

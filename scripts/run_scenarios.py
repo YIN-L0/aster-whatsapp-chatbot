@@ -226,7 +226,7 @@ async def run(name: str, setup: str, has_name: bool, turns: list, meter: StepMet
     await send("I Agree", "consent:yes")
     channel.sent.clear()
     if setup == "#direct":
-        await send("No, my health goals", "entry:direct")
+        await send("No, set health goals", "entry:direct")
     elif setup == "#essence":
         await send("Yes, Essence client", "entry:essence")
         await send("My treatment", "mode:post_treatment")

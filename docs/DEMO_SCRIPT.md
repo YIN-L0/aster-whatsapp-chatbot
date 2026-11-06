@@ -24,7 +24,7 @@ independent health & longevity companion; Part B shows the Essence post-treatmen
 
 ## A1. A direct user and their own goal (4 min)
 1. `#reset`, send **Hi!** → welcome + privacy + consent → **I Agree**
-2. "Have you had care or treatment at Essence?" → **No, my health goals** → the opening ("I'm Aster, here to help you…") with the goal list
+2. "Have you had care or treatment at Essence?" → **No, set health goals** → the opening ("I'm Aster, here to help you…") with the goal list and "Type HUB anytime to go back."
 3. Tap **Set up a goal** → **Weight management** → Aster asks what kind (e.g. **lose weight**), explains why it will ask a few questions (any can be skipped) and asks the first one,
    with example answers
 4. Answer naturally, e.g. **5'10 and about 210 lbs** → **38** → **skip that one** → a typical day of food

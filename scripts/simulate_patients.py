@@ -338,7 +338,7 @@ async def simulate(key: str, max_turns: int) -> dict:
         await send("hi")
         await send("I Agree", "consent:yes")
         if p["setup"] == "#direct":  # a new user who wants help with their own goals
-            out = await send("No, my health goals", "entry:direct")
+            out = await send("No, set health goals", "entry:direct")
         else:
             out = await send(p["setup"])
     else:
