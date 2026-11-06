@@ -882,8 +882,9 @@ async def _exec_local(st: TurnState, name: str, args: dict) -> dict:
         st.after_reply_texts.append(places.nearby_message(query, user))
         await referral.log(db, user, referral.ANY_NEED, "nearby_shown", mode=user.active_mode)
         return {"status": "shown", "area": places.label(user),
-                "note": "A Google Maps link is sent after your message, labelled as not reviewed by Aster. Mention it "
-                        "in one short sentence. Don't list, rank or invent providers or links yourself."}
+                "note": "The search is done: the Google Maps link is sent right after your message, labelled as not "
+                        "reviewed by Aster. Say in one short sentence that it's below (don't ask whether to search). "
+                        "Don't list, rank or invent providers or links yourself."}
 
     if name == "add_to_calendar":
         raw = str(args.get("start_local") or "").strip()
