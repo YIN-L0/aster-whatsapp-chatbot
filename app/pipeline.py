@@ -143,6 +143,12 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
             # A goal picked from the list: the agent records it (set_goal) and starts the conversation
             last.body = f"My goal: {last.body} [goal={button_id.removeprefix('goal:')}]"
             text = "\n".join(m.body for m in pending if m.body).strip()
+        elif button_id.startswith("resume:"):
+            # "Continue" on an open assessment: the agent resumes it (set_goal with the same goal)
+            goal = button_id.removeprefix("resume:")
+            user.active_mode, user.mode_chosen_at = "companion", utcnow()
+            last.body = router.RESUME_TEXT.format(label=router._goal_label(goal).lower(), goal=goal)
+            text = "\n".join(m.body for m in pending if m.body).strip()
         elif button_id.startswith("slot:"):
             # A booking time button: the agent books it (it may still need the patient's name and date of birth)
             last.body = _slot_button_text(button_id, last.body)

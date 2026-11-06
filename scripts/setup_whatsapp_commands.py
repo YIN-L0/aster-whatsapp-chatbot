@@ -5,7 +5,7 @@ slash commands (shown when the user types "/"), ice breakers (shown on an empty 
     .venv/bin/python -m scripts.setup_whatsapp_commands --apply    # send it to the Graph API
     .venv/bin/python -m scripts.setup_whatsapp_commands --show     # read the current settings
 
-Commands arrive as normal text ("/menu") and are handled by app.router. Ice breaker texts must match
+Commands arrive as normal text ("/hub") and are handled by app.router. Ice breaker texts must match
 app.router.ICE_BREAKERS (except "What is Aster?", which the agent answers).
 """
 
@@ -19,7 +19,8 @@ from app.config import get_settings
 SETTINGS = {
     "enable_welcome_message": True,
     "commands": [
-        {"command_name": "menu", "command_description": "Show the Aster menu"},
+        {"command_name": "hub", "command_description": "Open Your Longevity Hub"},
+        {"command_name": "goals", "command_description": "Set up a health goal"},
         {"command_name": "companion", "command_description": "Your health goals and personalized assessment"},
         {"command_name": "aftercare", "command_description": "My care & follow-ups: treatment support and check-ins"},
         {"command_name": "plan", "command_description": "View your longevity plan"},

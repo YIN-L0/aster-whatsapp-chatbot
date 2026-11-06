@@ -25,7 +25,7 @@ independent health & longevity companion; Part B shows the Essence post-treatmen
 ## A1. A direct user and their own goal (4 min)
 1. `#reset`, send **Hi!** → welcome + privacy + consent → **I Agree**
 2. "Have you had care or treatment at Essence?" → **No, my health goals** → the opening ("I'm Aster, here to help you…") with the goal list
-3. Tap **Explore health goals** → **Weight management** → Aster asks what kind (e.g. **lose weight**), explains why it will ask a few questions (any can be skipped) and asks the first one,
+3. Tap **Set up a goal** → **Weight management** → Aster asks what kind (e.g. **lose weight**), explains why it will ask a few questions (any can be skipped) and asks the first one,
    with example answers
 4. Answer naturally, e.g. **5'10 and about 210 lbs** → **38** → **skip that one** → a typical day of food
    → after each answer: one specific reaction, then the next question (never a form)
@@ -38,7 +38,8 @@ independent health & longevity companion; Part B shows the Essence post-treatmen
 > Plans never contain products – that's checked in code.
 
 ## A2. Leaving and coming back (1 min)
-- Mid-assessment, type **MENU** → **Your Longevity Hub**: **Continue My Assessment** is at the top; **My Care &
+- Mid-assessment, type **HUB** → **Your Longevity Hub**: **Continue My Assessment** is at the top, then **Set Up a
+  Goal**, which opens the goal list again with each goal's status (✅ plan ready, ⏸ in progress). **My Care &
   Follow-ups** first asks a non-client which clinic treated them. Switch modes and back: nothing is lost.
 - The next day (or after 12 h), **hi** → "Welcome back… want to pick up where we left off?"
 

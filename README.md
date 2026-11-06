@@ -32,7 +32,7 @@ cp .env.example .env            # add ANTHROPIC_API_KEY (default: Opus 5.5 fast)
 `/chat?key=ADMIN_TOKEN` is a WhatsApp-style mobile web chat that runs through the same pipeline as the
 WhatsApp bot (consent buttons, agent, safety rules, handoffs, check-ins). The ⋮ menu has the demo scenarios and a
 "Staff alerts" view showing what the clinic receives, and "New user – …" entries for a direct user, an Essence
-referral or a Helix & Harvest referral (also `?src=essence` on the link). The ☰ button next to the input sends MENU. Web-chat users have ids starting with `web`; everything
+referral or a Helix & Harvest referral (also `?src=essence` on the link). The ☰ button next to the input sends HUB. Web-chat users have ids starting with `web`; everything
 else is unchanged. Use it to test before the WhatsApp number is set up, or as the demo fallback.
 
 ## Deploy (Render)
@@ -46,7 +46,7 @@ else is unchanged. Use it to test before the WhatsApp number is set up, or as th
 
 Aster is one agent with three modules (docs/COMPANION_REDESIGN.md): **companion** (the user's own health goals:
 progressive assessment → versioned personal plan), **post_treatment** (Essence recovery check-ins, aftercare,
-booking) and **referral** (need-driven provider matching, gated in code). The user switches with `MENU`, `/`
+booking) and **referral** (need-driven provider matching, gated in code). The user switches with `HUB` (`MENU` still works), `/`
 commands or buttons; progress lives in its own tables, so switching loses nothing.
 
 ```

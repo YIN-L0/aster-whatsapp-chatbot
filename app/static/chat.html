@@ -150,7 +150,7 @@
   <div class="typing" id="typing" aria-label="Aster is typing"><i></i><i></i><i></i></div>
 
   <footer>
-    <button class="iconbtn quick" id="quickMenu" aria-label="Aster menu" title="Menu (same as typing MENU)">☰</button>
+    <button class="iconbtn quick" id="quickMenu" aria-label="Aster hub" title="Hub (same as typing HUB)">☰</button>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
     </div>
@@ -338,7 +338,7 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); submitInput(); }
   });
   $("sendBtn").addEventListener("click", submitInput);
-  $("quickMenu").addEventListener("click", () => send("MENU"));
+  $("quickMenu").addEventListener("click", () => send("HUB"));
 
   // menu
   const sheet = $("sheet"), backdrop = $("backdrop");

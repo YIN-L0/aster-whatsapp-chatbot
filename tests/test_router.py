@@ -123,7 +123,7 @@ async def test_menu_rows_depend_on_the_user_and_fit_whatsapp_limits(channel):
     await handle_inbound(inbound("MENU"))
     menu = channel.sent[-1]
     assert menu["type"] == "list" and menu["button"] == "Your Longevity Hub"
-    assert _ids(menu) == ["mode:companion", "menu:plan", "mode:post_treatment", "menu:services", "menu:human",
+    assert _ids(menu) == ["menu:goals", "menu:plan", "mode:post_treatment", "menu:services", "menu:human",
                           "menu:privacy"]
     assert all(len(r["title"]) <= 24 and len(r["description"]) <= 72 for r in menu["rows"])
 
@@ -153,12 +153,40 @@ async def test_switching_modes_keeps_assessment_progress(channel):
     await handle_inbound(inbound("/aftercare"))
     assert (await _user()).active_mode == "post_treatment"
     await handle_inbound(inbound("MENU"))
-    assert channel.sent[-1]["rows"][0]["title"] == "Continue My Assessment"
-    await handle_inbound(inbound("Continue My Assessment", button_id="mode:companion"))
+    assert [r["title"] for r in channel.sent[-1]["rows"][:2]] == ["Continue My Assessment", "Set Up a Goal"]
+    fake = FakeProvider([[{"name": "set_goal", "input": {"goal": "lose_weight"}}], reply("Great – next question…")])
+    set_provider(fake)
+    await handle_inbound(inbound("Continue My Assessment", button_id="resume:lose_weight"))
+    sent_to_agent = "\n".join(str(m.get("content", "")) for m in fake.calls[0].messages)
+    assert "Let's continue my lose weight assessment [goal=lose_weight]" in sent_to_agent
     async with session_scope() as db:
         a = await db.scalar(select(CompanionAssessment))
-        assert (a.current_slot, a.asked_slots, a.skipped_slots) == ("exercise", ["body_measures", "age"], ["sex"])
+        # nothing lost: earlier questions and skips are kept, and the next unanswered question comes next
+        assert (a.status, a.asked_slots, a.skipped_slots) == ("in_progress", ["body_measures", "age"], ["sex"])
     assert (await _user()).active_mode == "companion"
+
+
+async def test_goal_list_reachable_mid_assessment_and_progress_kept(channel):
+    await consent(channel)
+    user = await _user()
+    async with session_scope() as db:
+        db.add(CompanionAssessment(user_id=user.id, goal="lose_weight", asked_slots=["age"]))
+    await handle_inbound(inbound("My health goals", button_id="mode:companion"))
+    assert _ids(channel.sent[-1]) == ["resume:lose_weight", "menu:goals"]
+    await handle_inbound(inbound("hub"))
+    assert channel.sent[-1]["text"].startswith("What would you like to do? You can type HUB")
+    for way in (inbound("Set up a goal", button_id="menu:goals"), inbound("/goals")):
+        await handle_inbound(way)
+        goals = channel.sent[-1]
+        assert goals["button"] == "Set up a goal" and goals["text"].startswith("Which goal would you like to set up?")
+        assert [(r["id"], r["description"]) for r in goals["rows"][:2]] == [
+            ("goal:weight", "⏸ In progress · tap to continue"),
+            ("goal:general", "Eat in a way that fits your body and routine")]
+    await handle_inbound(inbound("back"))
+    assert channel.sent[-1]["rows"][1]["id"] == "menu:goals"  # BACK opens the hub too
+    async with session_scope() as db:
+        a = await db.scalar(select(CompanionAssessment))
+        assert (a.status, a.asked_slots) == ("in_progress", ["age"])  # nothing lost until another goal is picked
 
 
 async def test_plan_privacy_and_person_from_the_menu(channel):
@@ -199,7 +227,8 @@ async def test_returning_user_saying_hi_is_offered_to_continue(channel):
     await _age_last_message(30)
     await handle_inbound(inbound("hi"))
     assert "Welcome back, Emily" in channel.sent[-1]["text"] and "*Digestive and gut health*" in channel.sent[-1]["text"]
-    assert _ids(channel.sent[-1]) == ["mode:companion", "menu:open"]
+    assert _ids(channel.sent[-1]) == ["resume:gut_health", "menu:goals", "menu:open"]
+    assert all(len(b["title"]) <= 20 for b in channel.sent[-1]["buttons"])
     assert (await _user()).returned_at is None  # only the first message after the gap counts
 
 

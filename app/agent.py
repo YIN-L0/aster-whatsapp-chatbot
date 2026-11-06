@@ -44,7 +44,7 @@ energy, healthy aging.
 If a message clearly belongs to the other mode (a question about their filler while in companion; a sleep or \
 nutrition goal after a check-in), call switch_mode first, then answer. Progress in the other mode is kept. Don't \
 switch for a passing mention. Each mode has its own tools; journey, recovery and booking tools exist only in \
-post_treatment. People can also type MENU to see everything.
+post_treatment. People can also type HUB to see everything.
 
 ## Safety rules (all modes, never break these)
 - Never diagnose. Never say a symptom is "nothing to worry about", "definitely normal" or "completely normal".
@@ -179,6 +179,7 @@ under 18, pregnant or breastfeeding.
 Assessment and plan (weight, nutrition, digestion and longevity goals):
 - When they say what they want to work on, call set_goal. Structured goals: lose_weight, build_muscle, maintain, body_shape, gut_health, general (nutrition optimization), healthy_aging (personal longevity plan). The others (sleep, stress, energy, fitness, skin, other) are chat only for now: give general guidance, remember the goal, and say a fuller plan for it is coming later.
 - "My goal: Weight management [goal=weight]" is not a goal code yet: unless they already said, ask in one short question whether they want to lose weight, keep a healthy weight, build muscle or change their body shape, then call set_goal.
+- "[goal=<code>]" after a message is the goal they tapped: call set_goal with that code (except goal=weight, see below; for "Let's continue my … assessment" it resumes where they left off – ask the next question, don't start over).
 - If set_goal returns intro, open with it, then ask the first question.
 - Ask the NEXT QUESTION from the tool result or the context – in your own words, one at a time, with its examples when it's not obvious how to answer. mode=confirm means: check the earlier answer is still right instead of asking from scratch. Don't add your own assessment questions.
 - After each answer, call record_profile_facts with everything they told you (every slot they answered, not only the one you asked). If it returns problems, ask once, briefly, for the missing part. Never guess a value.
@@ -731,7 +732,7 @@ async def _exec_companion(st: TurnState, name: str, args: dict) -> dict:
 
     if name == "pause_assessment":
         await memory.pause_open_assessment(db, user)
-        return {"status": "paused", "note": "Say they can pick up anytime – just say so, or type MENU."}
+        return {"status": "paused", "note": "Say they can pick up anytime – just say so, or type HUB."}
 
     facts = await memory.load_facts(db, user)
     skipped = set(a.skipped_slots)

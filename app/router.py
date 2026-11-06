@@ -1,6 +1,6 @@
 """Entry, menu and mode routing (docs/COMPANION_REDESIGN.md §5–6). Deterministic: no LLM call.
 
-WhatsApp has no persistent menu, so the menu is summoned: MENU / slash commands send a list message, and tapping a
+WhatsApp has no persistent menu, so the hub is summoned: HUB (or the older MENU) / slash commands send a list message, and tapping a
 row switches active_mode. Switching never touches progress – assessments, plans and journeys live in their own tables.
 """
 
@@ -15,12 +15,13 @@ from app.channels import Button, ListRow
 from app.companion import goal_spec
 from app.config import get_settings
 from app.handoff import create_handoff
-from app.models import Appointment, Handoff, Journey, Message, Plan, ProviderLink, ReferralOffer, User, utcnow
+from app.models import Appointment, CompanionAssessment, Handoff, Journey, Message, Plan, ProviderLink, ReferralOffer, User, utcnow
 
 PREFIXES = ("entry:", "menu:", "mode:", "invite:", "ref:")  # ref:yes is turned into text for the agent first
-MENU_WORDS = {"MENU", "HOME", "SWITCH", "/MENU"}
+# HUB is the word users are shown; MENU and the rest still work (older messages and habits say MENU)
+HUB_WORDS = {"HUB", "/HUB", "MENU", "/MENU", "HOME", "SWITCH", "BACK", "GO BACK"}
 SLASH = {"/companion": "mode:companion", "/aftercare": "mode:post_treatment", "/treatment": "mode:post_treatment",
-         "/plan": "menu:plan", "/services": "menu:services", "/human": "menu:human", "/privacy": "menu:privacy"}
+         "/goals": "menu:goals", "/plan": "menu:plan", "/services": "menu:services", "/human": "menu:human", "/privacy": "menu:privacy"}
 # WhatsApp ice breakers (shown on an empty chat) arrive as plain text: route them like the matching button.
 # Keep in sync with scripts/setup_whatsapp_commands.py. "What is Aster?" is left to the agent.
 ICE_BREAKERS = {"help me with my health goals": "mode:companion", "questions after my treatment": "mode:post_treatment"}
@@ -37,7 +38,7 @@ COMPANION_INTRO = (
     "From nutrition and fitness to preventive care and healthy aging, I'll guide you every step of the way.\n\n"
     "✨ What's your biggest health or longevity goal right now?"
 )
-MENU_HINT = "_Type MENU anytime to switch between your health goals and treatment support._"
+HUB_HINT = "_Type HUB anytime to switch between your health goals and treatment support._"
 PRIVACY_TEXT = (
     "🔒 *Privacy & settings*\n\n"
     "• *STOP* pauses check-in messages; *START* turns them back on.\n"
@@ -52,7 +53,7 @@ def is_router_input(button_id: str | None, text: str) -> bool:
     if button_id:
         return button_id.startswith(PREFIXES)
     t = text.strip()
-    return t.upper() in MENU_WORDS or t.lower() in SLASH or t.lower() in ICE_BREAKERS
+    return t.upper() in HUB_WORDS or t.lower() in SLASH or t.lower() in ICE_BREAKERS
 
 
 # ---------- entry ----------
@@ -110,7 +111,7 @@ async def after_consent(db: AsyncSession, user: User) -> None:
     elif providers.get(user.entry_source):
         user.active_mode = "companion"
         name = providers.get(user.entry_source)["name"]
-        await send_goal_list(db, user, f"Welcome from {name}! 🌿\n\n{COMPANION_INTRO}\n\n{MENU_HINT}")
+        await send_goal_list(db, user, f"Welcome from {name}! 🌿\n\n{COMPANION_INTRO}\n\n{HUB_HINT}")
     else:
         await outbound.send_buttons(db, user, TRIAGE_TEXT, TRIAGE_BUTTONS)
 
@@ -119,11 +120,24 @@ async def after_consent(db: AsyncSession, user: User) -> None:
 
 
 open_assessment = memory.open_assessment
-GOAL_ROWS = [  # id goal:<code> – the agent receives "My goal: <title>" and calls set_goal
+GOAL_ROWS = [  # (id goal:<code>, title, description before it's started) – the agent receives "My goal: <title>"
     # "weight" is not a goal code: the agent asks whether they want to lose, keep or reshape, then calls set_goal
-    ("weight", "Weight management"), ("general", "Nutrition optimization"), ("gut_health", "Digestive and gut health"),
-    ("healthy_aging", "Personal longevity plan"), ("other", "Something else"),
+    ("weight", "Weight management", "Lose, maintain, build muscle or reshape"),
+    ("general", "Nutrition optimization", "Eat in a way that fits your body and routine"),
+    ("gut_health", "Digestive and gut health", "Bloating, regularity and comfort"),
+    ("healthy_aging", "Personal longevity plan", "Habits for healthy aging"),
+    ("other", "Something else", "Tell me in your own words"),
 ]
+WEIGHT_GOALS = ("lose_weight", "build_muscle", "maintain", "body_shape")  # all shown as the "weight" row
+GOAL_LIST_BUTTON = "Set up a goal"
+GOALS_TEXT = "Which goal would you like to set up? Your answers so far are saved – type HUB anytime to go back."
+
+
+RESUME_TEXT = "Let's continue my {label} assessment [goal={goal}]"  # resume:<goal> as the agent sees it
+
+
+def resume_buttons(a) -> list[Button]:
+    return [Button(f"resume:{a.goal}", "Continue"), Button("menu:goals", "Set up a goal")]
 
 
 def _goal_label(goal: str) -> str:
@@ -136,10 +150,11 @@ async def send_menu(db: AsyncSession, user: User) -> None:
 
     a = await open_assessment(db, user)
     if a:
-        rows = [ListRow("mode:companion", "Continue My Assessment",
-                        f"Resume your personalized health assessment ({_goal_label(a.goal)})")]
+        rows = [ListRow(f"resume:{a.goal}", "Continue My Assessment",
+                        f"Resume your personalized health assessment ({_goal_label(a.goal)})"),
+                ListRow("menu:goals", "Set Up a Goal", "See all health goals – your answers are kept")]
     else:
-        rows = [ListRow("mode:companion", "My Health Goals", here("companion") + "Explore your goals and get a "
+        rows = [ListRow("menu:goals", "Set Up a Goal", here("companion") + "Choose a health goal and get a "
                         "personalized assessment")]
     # Without a clinic link, My Care asks which clinic first (enter_post_treatment) – the title doesn't name Essence
     rows += [
@@ -150,22 +165,39 @@ async def send_menu(db: AsyncSession, user: User) -> None:
         ListRow("menu:human", "Connect with a Care Team", "Request support from a real person"),
         ListRow("menu:privacy", "Privacy & Settings", "Manage your data and preferences"),
     ]
-    await outbound.send_list(db, user, "What would you like to do? You can type MENU anytime to come back here.",
+    await outbound.send_list(db, user, "What would you like to do? You can type HUB anytime to come back here.",
                              "Your Longevity Hub", rows)
 
 
+async def goal_status(db: AsyncSession, user: User) -> dict[str, str]:
+    """Row code -> "plan" | "in_progress", from the user's assessments (abandoned and stale ones don't count)."""
+    rows = await db.scalars(select(CompanionAssessment).where(CompanionAssessment.user_id == user.id))
+    out: dict[str, str] = {}
+    for a in rows:
+        code = "weight" if a.goal in WEIGHT_GOALS else a.goal
+        if a.status == "plan_active":
+            out[code] = "plan"
+        elif a.status in ("in_progress", "paused") and utcnow() - a.updated_at <= memory.ABANDON_AFTER:
+            out.setdefault(code, "in_progress")
+    return out
+
+
 async def send_goal_list(db: AsyncSession, user: User, text: str = COMPANION_INTRO) -> None:
-    await outbound.send_list(db, user, text, "Explore health goals",
-                             [ListRow(f"goal:{code}", title) for code, title in GOAL_ROWS])
+    """The goal list, each row marked with its status so the user sees what's done and what's waiting."""
+    status = await goal_status(db, user)
+    labels = {"plan": "✅ Plan ready · tap to view or update", "in_progress": "⏸ In progress · tap to continue"}
+    await outbound.send_list(db, user, text, GOAL_LIST_BUTTON,
+                             [ListRow(f"goal:{code}", title, labels.get(status.get(code), blurb))
+                              for code, title, blurb in GOAL_ROWS])
 
 
 async def enter_companion(db: AsyncSession, user: User) -> None:
     user.active_mode, user.mode_chosen_at = "companion", utcnow()
     a = await open_assessment(db, user)
     if a:
-        await outbound.send_text(db, user, f"Welcome back to your health companion 🌿 Last time we were working on "
-                                 f"*{_goal_label(a.goal)}*. Want to pick up where we left off, or is something else on "
-                                 "your mind?", sender="aster_system")
+        await outbound.send_buttons(db, user, f"Welcome back to your health companion 🌿 Last time we were working "
+                                    f"on *{_goal_label(a.goal)}*. Want to pick up where we left off, or set up a "
+                                    "different goal? Your answers so far are kept either way.", resume_buttons(a))
         return
     if await memory.goals(db, user):
         await outbound.send_text(db, user, "Welcome back to your health companion 🌿 What's on your mind today?",
@@ -210,7 +242,7 @@ def format_plan(plan: Plan) -> str:
                      + (f" (still unknown: {', '.join(missing)})" if missing else "")
                      + ". It gets better as you tell me more._")
     if plan.review_after:
-        parts.append(f"_Let's look at it again around {plan.review_after:%b %-d}. Type MENU → My Longevity Plan to see it anytime._")
+        parts.append(f"_Let's look at it again around {plan.review_after:%b %-d}. Type HUB → My Longevity Plan to see it anytime._")
     return "\n\n".join(p for p in parts if p)
 
 
@@ -219,7 +251,7 @@ async def send_plan(db: AsyncSession, user: User) -> None:
     if not plan:
         await outbound.send_buttons(db, user, "You don't have a plan yet. In your health companion we can build one "
                                     "together – it starts with a few questions, and you can skip any of them.",
-                                    [Button("mode:companion", "Start now"), Button("menu:open", "Menu")])
+                                    [Button("mode:companion", "Start now"), Button("menu:open", "Hub")])
         return
     await outbound.send_text(db, user, format_plan(plan), sender="aster_system")
 
@@ -262,6 +294,11 @@ async def handle(db: AsyncSession, user: User, button_id: str | None, text: str)
         await send_menu(db, user)
     elif action == "mode:companion":
         await enter_companion(db, user)
+    elif action == "menu:goals":
+        # The goal list, even mid-assessment: picking a goal pauses the open one (its answers are kept)
+        user.active_mode, user.mode_chosen_at = "companion", utcnow()
+        first_time = not await memory.goals(db, user) and not await open_assessment(db, user)
+        await send_goal_list(db, user, COMPANION_INTRO if first_time else GOALS_TEXT)
     elif action == "mode:post_treatment":
         await enter_post_treatment(db, user)
     elif action == "menu:plan":
@@ -340,7 +377,7 @@ async def welcome_back(db: AsyncSession, user: User) -> None:
     if a:
         await outbound.send_buttons(
             db, user, f"Welcome back, {name}! 💛 Last time we were working on *{_goal_label(a.goal)}*. Want to pick "
-            "up where we left off?", [Button("mode:companion", "Continue"), Button("menu:open", "Something else")])
+            "up where we left off?", [*resume_buttons(a), Button("menu:open", "Hub")])
     else:
         await outbound.send_text(db, user, f"Welcome back, {name}! 💛", sender="aster_system")
         await send_menu(db, user)
