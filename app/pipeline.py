@@ -140,8 +140,17 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
             text = "\n".join(m.body for m in pending if m.body).strip()
             button_id = None
         elif button_id.startswith("goal:"):
-            # A goal picked from the list: the agent records it (set_goal) and starts the conversation
+            # A goal that already has a plan: show the plan first (no LLM); otherwise the agent records the goal
+            # (set_goal) and starts the conversation
+            if user.onboarding_state == "active" and await router.show_goal_plan(db, user, button_id[5:]):
+                return
             last.body = f"My goal: {last.body} [goal={button_id.removeprefix('goal:')}]"
+            text = "\n".join(m.body for m in pending if m.body).strip()
+        elif button_id.startswith("update:"):
+            # "Update this plan": the agent asks what changed, records it and makes a new version
+            goal = button_id.removeprefix("update:")
+            user.active_mode, user.mode_chosen_at = "companion", utcnow()
+            last.body = router.UPDATE_TEXT.format(label=router._goal_label(goal).lower(), goal=goal)
             text = "\n".join(m.body for m in pending if m.body).strip()
         elif button_id.startswith("resume:"):
             # "Continue" on an open assessment: the agent resumes it (set_goal with the same goal)

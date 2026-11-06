@@ -63,4 +63,5 @@ async def test_webchat_entry_source_and_menu_list():
         await c.post("/chat/api/send", json={"user_id": uid, "text": "MENU"})
         data = await _wait_for(c, uid, lambda d: d["messages"][-1]["type"] == "list")
         rows = data["messages"][-1]["buttons"]
+        assert data["messages"][-1]["list_button"] == "Your Longevity Hub"  # shown as the button that opens the rows
         assert rows[2]["id"] == "mode:post_treatment" and rows[2]["description"]

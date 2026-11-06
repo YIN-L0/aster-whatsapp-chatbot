@@ -135,6 +135,7 @@ GOALS_TEXT = "Which goal would you like to set up? Your answers so far are saved
 
 
 RESUME_TEXT = "Let's continue my {label} assessment [goal={goal}]"  # resume:<goal> as the agent sees it
+UPDATE_TEXT = "I'd like to update my {label} plan [goal={goal}]"  # update:<goal> as the agent sees it
 
 
 def resume_buttons(a) -> list[Button]:
@@ -245,6 +246,31 @@ def format_plan(plan: Plan) -> str:
     if plan.review_after:
         parts.append(f"_Let's look at it again around {plan.review_after:%b %-d}. Type HUB → My Longevity Plan to see it anytime._")
     return "\n\n".join(p for p in parts if p)
+
+
+async def latest_plan_for(db: AsyncSession, user: User, row_code: str) -> Plan | None:
+    """The newest plan for a goal-list row (any weight goal for "weight"), even if a later goal's plan replaced it."""
+    goals = WEIGHT_GOALS if row_code == "weight" else (row_code,)
+    return await db.scalar(select(Plan).where(Plan.user_id == user.id, Plan.goal.in_(goals))
+                           .order_by(Plan.created_at.desc()))
+
+
+async def show_goal_plan(db: AsyncSession, user: User, row_code: str) -> bool:
+    """A goal with a plan was tapped in the goal list: show that plan first, then ask what to do. False if none."""
+    plan = await latest_plan_for(db, user, row_code)
+    if not plan:
+        return False
+    user.active_mode, user.mode_chosen_at = "companion", utcnow()
+    text = format_plan(plan)
+    if plan.status != "active":
+        current = await memory.active_plan(db, user)
+        if current:
+            text = (f"_This is your last plan for {_goal_label(plan.goal).lower()}. Your current plan is for "
+                    f"{_goal_label(current.goal).lower()}._\n\n") + text
+    await outbound.send_text(db, user, text, sender="aster_system")
+    await outbound.send_buttons(db, user, "Would you like to update this plan, or pick another goal?",
+                                [Button(f"update:{plan.goal}", "Update this plan"), Button("menu:goals", "Back to goals")])
+    return True
 
 
 async def send_plan(db: AsyncSession, user: User) -> None:

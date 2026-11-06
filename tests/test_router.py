@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.channels import parse_webhook
 from app.db import session_scope
 from app.llm import FakeProvider, set_provider
-from app.models import CompanionAssessment, Handoff, ProviderLink, User, utcnow
+from app.models import CompanionAssessment, Handoff, Plan, ProviderLink, User, utcnow
 from app.pipeline import handle_inbound
 from tests.conftest import inbound
 
@@ -189,6 +189,34 @@ async def test_goal_list_reachable_mid_assessment_and_progress_kept(channel):
     async with session_scope() as db:
         a = await db.scalar(select(CompanionAssessment))
         assert (a.status, a.asked_slots) == ("in_progress", ["age"])  # nothing lost until another goal is picked
+
+
+async def test_tapping_a_goal_with_a_plan_shows_the_plan_first(channel):
+    await consent(channel)
+    set_provider(FakeProvider([]))  # showing the plan needs no LLM
+    user = await _user()
+    plan_content = {"situation_summary": "You want to lose weight.", "priorities": ["Protein at each meal"],
+                    "daily_habits": [], "weekly_habits": [], "metrics": ["Waist every 2 weeks"]}
+    async with session_scope() as db:
+        db.add(CompanionAssessment(user_id=user.id, goal="lose_weight", status="plan_active"))
+        db.add(Plan(user_id=user.id, goal="lose_weight", status="superseded", confidence="standard", content=plan_content))
+        db.add(Plan(user_id=user.id, goal="gut_health", version=2, confidence="standard",
+                    content={**plan_content, "situation_summary": "Gut plan."}))
+    await handle_inbound(inbound("/goals"))
+    assert channel.sent[-1]["rows"][0]["description"] == "✅ Plan ready · tap to view or update"
+    await handle_inbound(inbound("Weight management", button_id="goal:weight"))
+    shown, ask = channel.sent[-2], channel.sent[-1]
+    assert "Protein at each meal" in shown["text"] and "Your current plan is for digestive and gut health" in shown["text"]
+    assert _ids(ask) == ["update:lose_weight", "menu:goals"]
+    await handle_inbound(inbound("Back to goals", button_id="menu:goals"))
+    assert channel.sent[-1]["type"] == "list"
+
+    fake = FakeProvider([reply("What has changed since we made it?")])
+    set_provider(fake)
+    await handle_inbound(inbound("Update this plan", button_id="update:lose_weight"))
+    sent_to_agent = "\n".join(str(m.get("content", "")) for m in fake.calls[0].messages)
+    assert "I'd like to update my lose weight plan [goal=lose_weight]" in sent_to_agent
+    assert channel.sent[-1]["text"] == "What has changed since we made it?"
 
 
 async def test_plan_privacy_and_person_from_the_menu(channel):

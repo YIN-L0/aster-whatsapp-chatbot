@@ -95,6 +95,8 @@ async def messages(user_id: str = Query(...), x_demo_key: str | None = Header(de
                     "body": m.body,
                     "buttons": (m.payload or {}).get("buttons", []) if m.type == "buttons"
                     else (m.payload or {}).get("rows", []) if m.type == "list" else [],
+                    # the label of the button that opens a list in WhatsApp, e.g. "Set up a goal"
+                    "list_button": (m.payload or {}).get("button") if m.type == "list" else None,
                     "at": m.created_at.isoformat(),
                 }
             )

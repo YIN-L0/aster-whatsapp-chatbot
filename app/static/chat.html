@@ -75,6 +75,9 @@
     align-items: center; justify-content: center; gap: 6px; }
   .buttons button:active { filter: brightness(.95); }
   .buttons button[disabled] { opacity: .55; cursor: default; }
+  .buttons .listbtn { font-weight: 600; }
+  .buttons .rows { display: flex; flex-direction: column; gap: 2px; }
+  .buttons .rows[hidden] { display: none; }
   .buttons button small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 2px; }
   .quick { color: var(--muted); flex: none; align-self: center; font-size: 20px; }
   .typing { align-self: flex-start; background: var(--in); border-radius: 8px; border-top-left-radius: 0;
@@ -270,6 +273,17 @@
     if (m.buttons && m.buttons.length) {
       const wrap = document.createElement("div");
       wrap.className = "buttons";
+      // A WhatsApp list shows one button (e.g. "Set up a goal") that opens the rows; do the same here
+      let target = wrap;
+      if (m.type === "list" && m.list_button) {
+        const opener = document.createElement("button");
+        opener.type = "button"; opener.className = "listbtn";
+        opener.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>${esc(m.list_button)}`;
+        target = document.createElement("div"); target.className = "rows"; target.hidden = true;
+        opener.addEventListener("click", () => { target.hidden = !target.hidden; });
+        wrap.appendChild(opener);
+        wrap.appendChild(target);
+      }
       m.buttons.forEach(b => {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -279,10 +293,10 @@
         btn.addEventListener("click", () => {
           if (answeredButtons.has(m.id)) return;
           answeredButtons.add(m.id);
-          wrap.querySelectorAll("button").forEach(x => x.disabled = true);
+          target.querySelectorAll("button").forEach(x => x.disabled = true);
           send(b.title, b.id);
         });
-        wrap.appendChild(btn);
+        target.appendChild(btn);
       });
       row.appendChild(wrap);
     }
