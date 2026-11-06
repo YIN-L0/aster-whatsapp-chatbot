@@ -78,6 +78,10 @@ class User(TimestampMixin, Base):
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Set when a message arrives after a long gap; cleared once that turn is processed (resume, §7)
     returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Where they are, for nearby searches: ZIP / city / state only – a shared pin's coordinates are never stored
+    location_zip: Mapped[str | None] = mapped_column(String(10))
+    location_city: Mapped[str | None] = mapped_column(String(80))
+    location_state: Mapped[str | None] = mapped_column(String(2))
 
 
 class Message(TimestampMixin, Base):
@@ -197,6 +201,9 @@ class Appointment(TimestampMixin, Base):
     service: Mapped[str | None] = mapped_column(String(64))
     external_ref: Mapped[str | None] = mapped_column(String(64))  # the booking backend's appointment ref
     provider_slug: Mapped[str | None] = mapped_column(String(32), default="essence")
+    # Appointments the user told Aster about (source=user_reported, provider_slug=external) for the calendar file
+    location: Mapped[str | None] = mapped_column(String(200))
+    duration_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
 class Handoff(TimestampMixin, Base):

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, commands, journeys, memory, outbound, providers, referral, router, safety
+from app import booking, commands, journeys, memory, outbound, places, providers, referral, router, safety
 from app.agent import AgentResult, TurnState, run_agent
 from app.channels import Button, InboundMessage
 from app.config import get_settings
@@ -67,6 +67,8 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
         if user.onboarding_state == "active" and user.last_inbound_at and now - user.last_inbound_at > RETURN_GAP:
             user.returned_at = now
         user.last_inbound_at = now
+        if msg.type == "location":
+            msg.text = await _location_text(user, msg)
         payload = {k: v for k, v in (("button_id", msg.button_id), ("referral", msg.referral), ("entry", msg.entry)) if v}
         db.add(
             Message(
@@ -80,6 +82,19 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
             )
         )
         return user.id
+
+
+async def _location_text(user: User, msg: InboundMessage) -> str:
+    """A shared pin becomes ZIP / city on the user (after consent only); the message keeps only the area, so the
+    coordinates are never stored anywhere."""
+    if user.onboarding_state != "active" or msg.latitude is None or msg.longitude is None:
+        return "📍 Shared a location"
+    area = await places.reverse(msg.latitude, msg.longitude)
+    msg.latitude = msg.longitude = None
+    if not area:
+        return "📍 Shared my location (the area couldn't be read – ask for my ZIP code or city)"
+    places.set_area(user, zip_code=area["zip"], city=area["city"], state=area["state"])
+    return f"📍 Shared my location: {places.label(user)}"
 
 
 async def process_user(user_id: uuid.UUID) -> None:
@@ -346,6 +361,8 @@ async def _finish_turn(db: AsyncSession, user: User, run: AgentRun, result: Agen
         if st.booked and buttons[0].id.startswith("slot:"):
             continue  # booked in this turn – the time buttons are stale
         await outbound.send_buttons(db, user, body, buttons)
+    if st.ask_location:
+        await outbound.send_location_request(db, user, st.ask_location)
     await _maybe_invite_to_companion(db, user, st.journey, result, risk)
 
 

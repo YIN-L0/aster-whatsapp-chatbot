@@ -30,12 +30,15 @@ class ListRow:
 class InboundMessage:
     wa_id: str
     wa_message_id: str
-    type: str  # text | button_reply | media | welcome | unsupported
+    type: str  # text | button_reply | location | media | welcome | unsupported
     text: str
     profile_name: str | None = None
     button_id: str | None = None
     referral: str | None = None  # click-to-WhatsApp ad: headline, body and source URL
     entry: str | None = None  # web chat ?src= (a provider slug)
+    # A shared location pin. Turned into ZIP / city on arrival and never stored (app.places).
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 @dataclass
@@ -53,6 +56,8 @@ class Channel(Protocol):
     async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult: ...
 
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult: ...
+
+    async def send_location_request(self, to: str, body: str) -> SendResult: ...
 
     async def show_typing(self, to: str, message_id: str) -> None: ...
 
@@ -100,6 +105,11 @@ class WhatsAppChannel:
                 },
             }
         )
+
+    async def send_location_request(self, to: str, body: str) -> SendResult:
+        """A message with a "Send location" button; the user's tap shares one pin, once."""
+        return await self._post({"to": to, "type": "interactive", "interactive": {
+            "type": "location_request_message", "body": {"text": body[:1024]}, "action": {"name": "send_location"}}})
 
     async def send_list(self, to: str, body: str, button: str, rows: list[ListRow]) -> SendResult:
         return await self._post(
@@ -166,6 +176,12 @@ class ConsoleChannel:
             print(f"\n🌸 Aster → {to}:\n{body}\n{opts}\n")
         return SendResult(ok=True)
 
+    async def send_location_request(self, to: str, body: str) -> SendResult:
+        self.sent.append({"to": to, "type": "location_request", "text": body})
+        if self.echo:
+            print(f"\n🌸 Aster → {to}:\n{body}\n  [📍 Send location]\n")
+        return SendResult(ok=True)
+
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         self.sent.append({"to": to, "type": "template", "name": name, "params": params})
         if self.echo:
@@ -198,6 +214,9 @@ class WebChannel:
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         return SendResult(ok=True)
 
+    async def send_location_request(self, to: str, body: str) -> SendResult:
+        return SendResult(ok=True)  # the page shows a "Send location" button (browser location)
+
     async def show_typing(self, to: str, message_id: str) -> None:
         pass  # the page shows its own typing dots while a reply is pending
 
@@ -223,6 +242,9 @@ class RoutingChannel:
 
     async def send_template(self, to: str, name: str, params: list[str]) -> SendResult:
         return await self._for(to).send_template(to, name, params)
+
+    async def send_location_request(self, to: str, body: str) -> SendResult:
+        return await self._for(to).send_location_request(to, body)
 
     async def show_typing(self, to: str, message_id: str) -> None:
         await self._for(to).show_typing(to, message_id)
@@ -268,7 +290,7 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
             for m in value.get("messages", []):
                 wa_id = m.get("from", "")
                 mtype = m.get("type")
-                text, button_id, kind = "", None, "unsupported"
+                text, button_id, kind, lat, lon = "", None, "unsupported", None, None
                 if mtype == "text":
                     kind, text = "text", m.get("text", {}).get("body", "")
                 elif mtype == "interactive":
@@ -279,6 +301,9 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
                     kind = "button_reply"
                     text = m.get("button", {}).get("text", "")
                     button_id = m.get("button", {}).get("payload")
+                elif mtype == "location":
+                    kind, loc = "location", m.get("location", {})
+                    lat, lon = loc.get("latitude"), loc.get("longitude")
                 elif mtype in ("image", "audio", "video", "document", "sticker"):
                     kind = "media"
                 elif mtype == "request_welcome":  # the user opened the chat for the first time
@@ -296,6 +321,8 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
                         profile_name=names.get(wa_id),
                         button_id=button_id,
                         referral=referral or None,
+                        latitude=lat,
+                        longitude=lon,
                     )
                 )
             statuses.extend(value.get("statuses", []))

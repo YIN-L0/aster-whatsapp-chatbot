@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import assessment_engine as eng
-from app import booking, companion, journeys, knowledge, memory, providers, referral, router
+from app import booking, cal, companion, followups, journeys, knowledge, memory, places, providers, referral, router
 from app.channels import Button, is_web_user
 from app.config import get_settings
 from app.handoff import create_handoff
@@ -209,6 +209,17 @@ Offer share_with_provider so they don't have to repeat themselves – nothing is
 the context lists what they've said no to.
 - Clinical concerns are different: when someone needs a clinician, say so plainly (and use request_handoff when risk \
 >= 2) – that is care, not a referral.
+
+## Location, nearby options and calendar (either mode)
+- search_nearby sends a Google Maps search for providers near them – not partners, not reviewed by Aster. Use it only \
+when they want options near them beyond what find_services gave (after those, never instead of them), or nothing \
+there fits. Never for emergencies – that's 911.
+- If it returns need_location, ask them in one short sentence to tap Send location or type their ZIP code or city. \
+When they type one, call set_location, then search_nearby again. "📍 Shared my location: …" means it's saved: run \
+the search they wanted. Location in the context shows what's known.
+- When they mention an appointment outside Aster (booked or planned – e.g. with a provider they found), ask for \
+what's missing of the date, time and place, then offer to add it to their calendar with reminders. Call \
+add_to_calendar only after they say yes. The links are sent for you – never write calendar links yourself.
 
 ## Output
 Return the final answer as the JSON object described by the output schema: "messages" is the list of WhatsApp \
@@ -451,11 +462,34 @@ REFERRAL_TOOLS = [
                  "provider": {"type": "string", "enum": sorted(providers.catalog())}, "need": _NEED},
               "required": ["provider", "need"]}),
 ]
-TOOLS += _companion_tools() + REFERRAL_TOOLS
+LOCAL_TOOLS = [
+    ToolSpec("search_nearby", "A Google Maps search for providers near the user – not partners, not reviewed by "
+             "Aster. Only when they want options near them beyond find_services, or none fit. The link is sent after "
+             "your message. Without a known location it asks the user for one instead.",
+             {"type": "object", "properties": {
+                 "query": {"type": "string", "description": "what to look for, plain words, e.g. 'registered dietitian'"}},
+              "required": ["query"]}),
+    ToolSpec("set_location", "Save the ZIP code or city the user typed (for nearby searches). Only the area is kept.",
+             {"type": "object", "properties": {
+                 "zip": {"type": "string", "description": "5-digit US ZIP code"},
+                 "city": {"type": "string"},
+                 "state": {"type": "string", "description": "2 letters, e.g. IN"}}}),
+    ToolSpec("add_to_calendar", "After the user said yes: save an appointment they have outside Aster and send them "
+             "one-tap calendar links, plus reminders here. Never for appointments booked with book_appointment.",
+             {"type": "object", "properties": {
+                 "provider_name": {"type": "string", "description": "who it's with, as the user said"},
+                 "what": {"type": "string", "description": "short title, e.g. 'Dietitian appointment'"},
+                 "start_local": {"type": "string", "description": "YYYY-MM-DDTHH:MM in the user's local time"},
+                 "duration_minutes": {"type": "integer", "description": "only if they said; default 60"},
+                 "address": {"type": "string", "description": "only if they said"}},
+              "required": ["provider_name", "what", "start_local"]}),
+]
+LOCAL_TOOL_NAMES = {t.name for t in LOCAL_TOOLS}
+TOOLS += _companion_tools() + REFERRAL_TOOLS + LOCAL_TOOLS
 COMPANION_TOOL_NAMES = {"set_goal", "record_profile_facts", "skip_question", "pause_assessment", "get_plan_inputs",
                         "generate_plan"}
 REFERRAL_TOOL_NAMES = {t.name for t in REFERRAL_TOOLS}
-SHARED_TOOLS = {"request_handoff", "switch_mode", "search_knowledge"} | REFERRAL_TOOL_NAMES
+SHARED_TOOLS = {"request_handoff", "switch_mode", "search_knowledge"} | REFERRAL_TOOL_NAMES | LOCAL_TOOL_NAMES
 MODE_TOOLS = {
     "post_treatment": SHARED_TOOLS | {"propose_journey", "record_recovery_update", "check_availability",
                                       "book_appointment", "list_my_appointments"},
@@ -482,6 +516,7 @@ class TurnState:
     handoff_urgency: str | None = None
     recorded_entry_ids: list[uuid.UUID] = field(default_factory=list)
     after_reply_buttons: list[tuple[str, list[Button]]] = field(default_factory=list)
+    ask_location: str | None = None  # a "Send location" request sent after the reply
     offered_slots: set[str] = field(default_factory=set)
     tool_log: list[dict] = field(default_factory=list)
 
@@ -509,6 +544,8 @@ async def _exec_tool(st: TurnState, name: str, args: dict) -> dict:
         return await _exec_companion(st, name, args)
     if name in REFERRAL_TOOL_NAMES:
         return await _exec_referral(st, name, args)
+    if name in LOCAL_TOOL_NAMES:
+        return await _exec_local(st, name, args)
 
     if name == "switch_mode":
         mode = args.get("mode")
@@ -807,7 +844,9 @@ async def _exec_referral(st: TurnState, name: str, args: dict) -> dict:
             "Neutral advice first, including whether they really need a professional. Then up to 3 options in this "
             "order, each with what it is and why it fits (reasons) and any uncertainties, plus the neutral option. Don't "
             "give prices or contact details until they show interest in one; then give them. Use only what is here – "
-            "never invent services, results or qualifications. The partnership disclosure is added automatically.")}
+            "never invent services, results or qualifications. The partnership disclosure is added automatically. "
+            "If they want more options near them, or none of these fit, search_nearby adds a Google Maps search "
+            "after these.")}
 
     if name == "share_with_provider":
         p = providers.get(args.get("provider"))
@@ -818,6 +857,57 @@ async def _exec_referral(st: TurnState, name: str, args: dict) -> dict:
             f"Share this with {p['name']}?\n\n{summary}",
             [Button(f"ref:share:{p['slug']}:{need}", "Share my summary"), Button("ref:noshare", "Don't share")]))
         return {"status": "asked", "note": "Buttons with exactly what would be shared are added after your message."}
+    return {"error": f"unknown_tool {name}"}
+
+
+LOCATION_ASK = "Tap below to share your location once, or just type your ZIP code. I only keep your ZIP code / city."
+_LOCAL_START = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
+
+
+async def _exec_local(st: TurnState, name: str, args: dict) -> dict:
+    """Location (ZIP / city only), nearby search links and calendar links."""
+    db, user = st.db, st.user
+    if name == "set_location":
+        problems = places.set_area(user, zip_code=args.get("zip"), city=args.get("city"), state=args.get("state"))
+        return {"problems": problems} if problems else {"saved": places.label(user)}
+
+    if name == "search_nearby":
+        query = " ".join(str(args.get("query") or "").split())[:60]
+        if not query:
+            return {"error": "empty_query"}
+        if not places.label(user):
+            st.ask_location = LOCATION_ASK
+            return {"status": "need_location", "note": "A 'Send location' button is added after your message. Ask "
+                    "them in one short sentence to tap it or type their ZIP code or city. Don't search yet."}
+        st.after_reply_texts.append(places.nearby_message(query, user))
+        await referral.log(db, user, referral.ANY_NEED, "nearby_shown", mode=user.active_mode)
+        return {"status": "shown", "area": places.label(user),
+                "note": "A Google Maps link is sent after your message, labelled as not reviewed by Aster. Mention it "
+                        "in one short sentence. Don't list, rank or invent providers or links yourself."}
+
+    if name == "add_to_calendar":
+        raw = str(args.get("start_local") or "").strip()
+        if not _LOCAL_START.match(raw):
+            return {"error": "bad_start", "hint": "start_local must be YYYY-MM-DDTHH:MM. Ask for the date and time."}
+        tz = ZoneInfo(user.timezone)
+        start = datetime.fromisoformat(raw).replace(tzinfo=tz)
+        if start <= datetime.now(tz):
+            return {"error": "in_the_past", "hint": "Check the date and time with them."}
+        minutes = args.get("duration_minutes")
+        appt = Appointment(
+            user_id=user.id, starts_at=start, purpose="other", status="confirmed", source="user_reported",
+            provider_slug="external", provider_name=str(args.get("provider_name") or "")[:120] or "your provider",
+            service=str(args.get("what") or "Appointment")[:64], location=(args.get("address") or None) and
+            str(args["address"])[:200], duration_minutes=minutes if isinstance(minutes, int) and 5 <= minutes <= 600 else None)
+        db.add(appt)
+        await db.flush()
+        reminders = bool(user.proactive_opt_in)
+        if reminders:
+            await followups.schedule_appointment_reminder(db, user, appt)
+        st.after_reply_texts.append(cal.message(appt, user, reminders))
+        return {"status": "added", "when": f"{start:%a %b %-d, %-I:%M %p}", "reminders": reminders,
+                "note": "The calendar links are sent after your message – don't write links. Confirm in one short "
+                        "sentence."}
     return {"error": f"unknown_tool {name}"}
 
 

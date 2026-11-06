@@ -57,6 +57,11 @@ async def schedule_appointment_reminder(db: AsyncSession, user: User, appt: Appo
     if due <= datetime.now(tz):
         due = max(datetime.now(tz) + timedelta(minutes=1), start - timedelta(hours=2))
     db.add(Checkin(user_id=user.id, appointment_id=appt.id, kind="appointment_reminder", due_at=due.astimezone(timezone.utc)))
+    # Appointments the user told us about (not booked through Aster) also get one 2 hours before
+    two_hours = start - timedelta(hours=2)
+    if appt.source == "user_reported" and two_hours > max(due, datetime.now(tz)) + timedelta(minutes=30):
+        db.add(Checkin(user_id=user.id, appointment_id=appt.id, kind="appointment_reminder",
+                       due_at=two_hours.astimezone(timezone.utc)))
     await db.flush()
 
 
@@ -75,8 +80,13 @@ async def send_checkin(db: AsyncSession, user: User, checkin: Checkin) -> bool:
             checkin.status = "cancelled"
             return False
         when = booking.fmt_slot(_aware(appt.starts_at).astimezone(ZoneInfo(user.timezone)))
-        text = (f"Hi {user.first_name or 'there'}! 💛 A quick reminder: your {appt.purpose.replace('_', ' ')} "
-                f"at Essence is on {when}. Reply here if you need to change it.")
+        if appt.source == "user_reported":
+            where = f" at {appt.location}" if appt.location else ""
+            text = (f"Hi {user.first_name or 'there'}! 💛 A quick reminder: {(appt.service or 'your appointment')} "
+                    f"with {appt.provider_name} is on {when}{where}.")
+        else:
+            text = (f"Hi {user.first_name or 'there'}! 💛 A quick reminder: your {appt.purpose.replace('_', ' ')} "
+                    f"at Essence is on {when}. Reply here if you need to change it.")
         ok = await outbound.send_text(db, user, text, sender="aster_system", checkin_id=checkin.id)
     elif outbound.in_service_window(user):
         ok = await run_checkin_opener(db, user, checkin)

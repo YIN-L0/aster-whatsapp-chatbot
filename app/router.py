@@ -45,7 +45,8 @@ PRIVACY_TEXT = (
     "• *STOP* pauses check-in messages; *START* turns them back on.\n"
     "• *DELETE MY DATA* asks the team to delete everything Aster has stored about you.\n"
     "• Aster never sends you marketing messages unless you ask for them.\n"
-    "• Partner providers (like clinics) only see what you choose to share with them.\n\n"
+    "• Partner providers (like clinics) only see what you choose to share with them.\n"
+    "• 📍 If you share your location, Aster keeps only your ZIP code / city – never the exact spot.\n\n"
     "Privacy Policy: {url}"
 )
 

@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # DEMO: the booking backend requires a birth date; the demo assumes adults and sends this instead of asking.
     # Empty = ask the patient. Must be emptied before real patients book.
     booking_default_birth_date: str = "1990-01-01"
+    # Public address of this server, for calendar links. Empty = Render's / Railway's own URL, else localhost.
+    public_base_url: str = ""
+    # Turns a shared location pin into a ZIP code and city (OpenStreetMap); the pin itself is not stored.
+    geocoder_url: str = "https://nominatim.openstreetmap.org/reverse"
     staff_whatsapp_numbers: str = ""  # comma separated wa_ids that receive handoff alerts
     demo_mode: bool = True
     admin_token: str = "admin-key"

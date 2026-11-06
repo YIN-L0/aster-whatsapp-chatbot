@@ -1,17 +1,18 @@
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from sqlalchemy import text, update
 
-from app import admin, booking, router, webchat
+from app import admin, booking, cal, router, webchat
 from app.channels import get_channel, parse_webhook, verify_signature
 from app.config import get_settings
 from app.db import init_db, session_scope
 from app.followups import scheduler_loop
-from app.models import Message
+from app.models import Appointment, Message
 from app.pipeline import ingest, process_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -53,6 +54,21 @@ async def healthz() -> dict:
     async with session_scope() as db:
         await db.execute(text("select 1"))
     return {"ok": True}
+
+
+@app.get("/cal/{appt_id}.ics")
+async def calendar_file(appt_id: str) -> Response:
+    """One-tap "add to calendar" for an appointment the user told Aster about. The id is a random UUID."""
+    try:
+        key = uuid.UUID(appt_id)
+    except ValueError:
+        raise HTTPException(status_code=404)
+    async with session_scope() as db:
+        appt = await db.get(Appointment, key)
+        if not appt or appt.status != "confirmed":
+            raise HTTPException(status_code=404)
+        return Response(cal.ics(appt), media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": 'inline; filename="appointment.ics"'})
 
 
 @app.get("/webhooks/whatsapp")

@@ -74,6 +74,17 @@ async def send_buttons(db: AsyncSession, user: User, body: str, buttons: list[Bu
     return result.ok
 
 
+async def send_location_request(db: AsyncSession, user: User, body: str) -> bool:
+    """A message with a "Send location" button (WhatsApp) / browser location (web chat)."""
+    if not in_service_window(user):
+        return False
+    result = await get_channel().send_location_request(user.wa_id, body)
+    db.add(Message(user_id=user.id, direction="out", wa_message_id=result.wa_message_id, type="location_request",
+                   body=body, sender="aster_system", status="processed",
+                   delivery_status="sent" if result.ok else "failed"))
+    return result.ok
+
+
 async def send_list(db: AsyncSession, user: User, body: str, button: str, rows: list[ListRow]) -> bool:
     if not in_service_window(user):
         return False

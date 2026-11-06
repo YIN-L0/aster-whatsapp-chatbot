@@ -93,6 +93,7 @@ async def handle(db: AsyncSession, user: User, text: str) -> bool:
         await wipe_user_data(db, user)
         user.onboarding_state, user.health_consent, user.conversation_mode = "new", False, "ai"
         user.entry_source, user.active_mode, user.marketing_opt_in = "unknown", "none", False
+        user.location_zip = user.location_city = user.location_state = None
         await outbound.send_text(db, user, "🧹 Demo data deleted. Send any message to start again.", sender="aster_system")
         return True
 

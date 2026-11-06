@@ -40,6 +40,9 @@ class SendIn(BaseModel):
     text: str = Field(default="", max_length=2000)
     button_id: str | None = Field(default=None, max_length=100)
     entry: str | None = Field(default=None, max_length=32)  # ?src= on the chat link, e.g. essence
+    # "Send location" in the page (browser location). Turned into ZIP / city on arrival and never stored.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -52,12 +55,15 @@ async def page(key: str = ""):
 async def send(body: SendIn, background: BackgroundTasks, x_demo_key: str | None = Header(default=None)):
     _check(x_demo_key)
     _check_user(body.user_id)
-    if not body.text.strip() and not body.button_id:
+    located = body.latitude is not None and body.longitude is not None
+    if not body.text.strip() and not body.button_id and not located:
         raise HTTPException(status_code=400, detail="empty message")
     msg = InboundMessage(
         wa_id=body.user_id,
         wa_message_id=f"web-{uuid.uuid4()}",
-        type="button_reply" if body.button_id else "text",
+        type="location" if located else "button_reply" if body.button_id else "text",
+        latitude=body.latitude if located else None,
+        longitude=body.longitude if located else None,
         text=body.text.strip(),
         profile_name=body.name.strip() or "Guest",
         button_id=body.button_id,

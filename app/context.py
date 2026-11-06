@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import json
 
-from app import assessment_engine, booking, companion, journeys, memory, referral
+from app import assessment_engine, booking, companion, journeys, memory, places, referral
 from app.channels import is_web_user
 from app.config import get_settings
 from app.handoff import open_handoff
@@ -38,6 +38,8 @@ async def build_history(db: AsyncSession, user: User, exclude_ids: set) -> list[
             body = f"{m.body}\n[buttons shown: {', '.join(b['title'] for b in (m.payload or {}).get('buttons', []))}]"
         elif m.type == "list":
             body = f"{m.body}\n[menu shown: {', '.join(r['title'] for r in (m.payload or {}).get('rows', []))}]"
+        elif m.type == "location_request":
+            body = f"{m.body}\n[Send location button shown]"
         elif m.type == "template":
             body = "[sent check-in template message]"
         if turns and turns[-1]["role"] == role:
@@ -89,7 +91,7 @@ async def build_context_block(
         f"now_local: {now.strftime('%A %Y-%m-%d %H:%M')} ({user.timezone})",
         f"patient: first_name={user.first_name or 'unknown'}; health_consent={str(user.health_consent).lower()}",
         f"aster: active_mode={user.active_mode or 'none'}; entry_source={user.entry_source or 'unknown'}; "
-        f"provider_links={', '.join(await _links(db, user)) or 'none'}",
+        f"provider_links={', '.join(await _links(db, user)) or 'none'}; location={places.label(user) or 'unknown'}",
     ]
     if returning:
         lines.append("RETURNING: this is their first message after a long break – a short welcome back fits, then "
