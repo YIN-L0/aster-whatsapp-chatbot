@@ -30,7 +30,7 @@ class ListRow:
 class InboundMessage:
     wa_id: str
     wa_message_id: str
-    type: str  # text | button_reply | location | media | welcome | unsupported
+    type: str  # text | button_reply | location | voice | media | welcome | unsupported
     text: str
     profile_name: str | None = None
     button_id: str | None = None
@@ -39,6 +39,7 @@ class InboundMessage:
     # A shared location pin. Turned into ZIP / city on arrival and never stored (app.places).
     latitude: float | None = None
     longitude: float | None = None
+    media_id: str | None = None  # a voice note: the Meta media id, transcribed when the message is processed
 
 
 @dataclass
@@ -290,7 +291,7 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
             for m in value.get("messages", []):
                 wa_id = m.get("from", "")
                 mtype = m.get("type")
-                text, button_id, kind, lat, lon = "", None, "unsupported", None, None
+                text, button_id, kind, lat, lon, media_id = "", None, "unsupported", None, None, None
                 if mtype == "text":
                     kind, text = "text", m.get("text", {}).get("body", "")
                 elif mtype == "interactive":
@@ -304,7 +305,9 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
                 elif mtype == "location":
                     kind, loc = "location", m.get("location", {})
                     lat, lon = loc.get("latitude"), loc.get("longitude")
-                elif mtype in ("image", "audio", "video", "document", "sticker"):
+                elif mtype == "audio":
+                    kind, media_id = "voice", m.get("audio", {}).get("id")
+                elif mtype in ("image", "video", "document", "sticker"):
                     kind = "media"
                 elif mtype == "request_welcome":  # the user opened the chat for the first time
                     kind = "welcome"
@@ -323,6 +326,7 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
                         referral=referral or None,
                         latitude=lat,
                         longitude=lon,
+                        media_id=media_id,
                     )
                 )
             statuses.extend(value.get("statuses", []))

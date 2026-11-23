@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import booking, commands, journeys, memory, outbound, places, providers, referral, router, safety
+from app import booking, commands, journeys, memory, outbound, places, providers, referral, router, safety, voice
 from app.agent import AgentResult, TurnState, run_agent
 from app.channels import Button, InboundMessage
 from app.config import get_settings
@@ -69,7 +69,7 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
         user.last_inbound_at = now
         if msg.type == "location":
             msg.text = await _location_text(user, msg)
-        payload = {k: v for k, v in (("button_id", msg.button_id), ("referral", msg.referral), ("entry", msg.entry)) if v}
+        payload = {k: v for k, v in (("button_id", msg.button_id), ("referral", msg.referral), ("entry", msg.entry), ("media_id", msg.media_id)) if v}
         db.add(
             Message(
                 user_id=user.id,
@@ -82,6 +82,17 @@ async def ingest(msg: InboundMessage) -> uuid.UUID | None:
             )
         )
         return user.id
+
+
+async def _transcribe_voice(user: User, pending: list[Message]) -> None:
+    """A voice note becomes its transcript, so the rest of the pipeline treats it as typed text. Only after consent
+    (the audio goes to OpenAI); on failure the body stays empty and the user is asked to resend."""
+    for m in pending:
+        media_id = (m.payload or {}).get("media_id")
+        if m.type != "voice" or not media_id or m.body or user.onboarding_state != "active":
+            continue
+        m.body = await voice.transcribe_media(media_id) or ""
+        m.payload = {**(m.payload or {}), "source": "voice"}
 
 
 async def _location_text(user: User, msg: InboundMessage) -> str:
@@ -133,6 +144,7 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
         return
     for m in pending:
         m.status = "processed"
+    await _transcribe_voice(user, pending)
     last = pending[-1]
     text = "\n".join(m.body for m in pending if m.body).strip()
     returning, user.returned_at = user.returned_at is not None, None
@@ -187,10 +199,17 @@ async def _process(db: AsyncSession, user_id: uuid.UUID) -> None:
     if await commands.handle(db, user, text):
         return
 
+    if last.type == "voice" and not text and user.onboarding_state == "active":
+        await outbound.send_text(
+            db, user,
+            "Sorry, I couldn't make out that voice note. Could you send it again, or type your message instead?",
+            sender="aster_system",
+        )
+        return
     if last.type == "media" and not text:
         await outbound.send_text(
             db, user,
-            "Thanks for sending that! I can't view photos or voice notes yet. Could you describe in words how "
+            "Thanks for sending that! I can't view photos yet. Could you describe in words how "
             "things look or feel? If you're worried, the Essence team can review photos directly – just ask.",
             sender="aster_system",
         )
@@ -418,6 +437,7 @@ async def _handle_button(db: AsyncSession, user: User, button_id: str) -> bool:
         deferred = list(await db.scalars(
             select(Message).where(Message.user_id == user.id, Message.status == "deferred").order_by(Message.created_at)
         ))
+        await _transcribe_voice(user, deferred)  # a voice note sent before consent was held back; now it may be heard
         text = providers.strip_entry_codes("\n".join(m.body for m in deferred if m.body).strip())
         await outbound.send_text(db, user, "💚 *You're all set!*\n\nI'm glad you're here.", sender="aster_system")
         if router.is_router_input(None, text):  # e.g. an ice breaker tapped before consent

@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = "low"  # minimal | low | medium | high; empty for non-reasoning models (gpt-4.1)
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    # Voice notes -> text (uses OPENAI_API_KEY; the agent itself can still run on Anthropic)
+    transcribe_model: str = "gpt-4o-mini-transcribe"
     # Simulated patients and eval judge – a different model from the bot under test
     sim_patient_provider: str = "openai"  # openai | anthropic
     sim_patient_model: str = ""  # default: gpt-5-mini / claude-sonnet-5-5
